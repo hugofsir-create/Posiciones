@@ -1,0 +1,92 @@
+{
+  "entities": {
+    "StockRecord": {
+      "title": "StockRecord",
+      "description": "Daily record of kilos stored",
+      "type": "object",
+      "properties": {
+        "date": { "type": "string", "description": "Date of the record (YYYY-MM-DD)" },
+        "kilos": { "type": "number", "description": "Amount in kilos" },
+        "uid": { "type": "string", "description": "User ID of the owner" },
+        "created_at": { "type": "string", "format": "date-time", "description": "Creation timestamp" }
+      },
+      "required": ["date", "kilos", "uid"]
+    },
+    "StockReport": {
+      "title": "StockReport",
+      "description": "Bi-weekly report of kilos stored",
+      "type": "object",
+      "properties": {
+        "month": { "type": "string", "description": "Month of the report" },
+        "period": { "type": "string", "description": "Period (1st or 2nd half)" },
+        "total_kilos": { "type": "number" },
+        "avg_kilos": { "type": "number" },
+        "data_json": { "type": "string", "description": "JSON string of the daily records" },
+        "uid": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["month", "period", "total_kilos", "uid"]
+    },
+    "PalletRecord": {
+      "title": "PalletRecord",
+      "description": "Daily record of pallet positions (Bianchi)",
+      "type": "object",
+      "properties": {
+        "date": { "type": "string" },
+        "positions": { "type": "number" },
+        "uid": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["date", "positions", "uid"]
+    },
+    "PalletReport": {
+      "title": "PalletReport",
+      "description": "Weekly report of pallet positions (Bianchi)",
+      "type": "object",
+      "properties": {
+        "week_start": { "type": "string" },
+        "week_end": { "type": "string" },
+        "total_positions": { "type": "number" },
+        "avg_positions": { "type": "number" },
+        "data_json": { "type": "string" },
+        "uid": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["week_start", "week_end", "total_positions", "uid"]
+    },
+    "CepasRecord": {
+      "title": "CepasRecord",
+      "description": "Daily record of positions (Cepas)",
+      "type": "object",
+      "properties": {
+        "date": { "type": "string" },
+        "positions": { "type": "number" },
+        "uid": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["date", "positions", "uid"]
+    },
+    "CepasReport": {
+      "title": "CepasReport",
+      "description": "Monthly report of positions (Cepas)",
+      "type": "object",
+      "properties": {
+        "month": { "type": "string" },
+        "total_positions": { "type": "number" },
+        "avg_positions": { "type": "number" },
+        "data_json": { "type": "string" },
+        "uid": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["month", "total_positions", "uid"]
+    }
+  },
+  "firestore": {
+    "/records": { "schema": "StockRecord", "description": "Collection of daily kilo records" },
+    "/reports": { "schema": "StockReport", "description": "Collection of bi-weekly reports" },
+    "/pallets": { "schema": "PalletRecord", "description": "Collection of daily pallet records" },
+    "/pallet_reports": { "schema": "PalletReport", "description": "Collection of weekly pallet reports" },
+    "/cepas": { "schema": "CepasRecord", "description": "Collection of daily cepas records" },
+    "/cepas_reports": { "schema": "CepasReport", "description": "Collection of monthly cepas reports" }
+  }
+}
