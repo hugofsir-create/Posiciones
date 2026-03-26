@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import * as React from 'react';
+import { useState, useEffect, useMemo, Component } from 'react';
 import { 
   Plus, 
   Calendar, 
@@ -19,8 +20,6 @@ import {
   Loader2,
   Database,
   Upload,
-  LogOut,
-  LogIn,
   Truck
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -53,12 +52,10 @@ import {
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import * as XLSX from 'xlsx';
-import { auth, db, signInWithGoogle, logout, handleFirestoreError, OperationType } from './firebase';
-import { onAuthStateChanged, User } from 'firebase/auth';
+import { db, handleFirestoreError, OperationType } from './firebase';
 import { 
   collection, 
   query, 
-  where, 
   onSnapshot, 
   addDoc, 
   deleteDoc, 
@@ -131,9 +128,67 @@ interface CepasReport {
   uid: string;
 }
 
+interface ErrorBoundaryProps {
+  children: React.ReactNode;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  errorInfo: any;
+}
+
+class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    (this as any).state = { hasError: false, errorInfo: null };
+  }
+
+  static getDerivedStateFromError(error: any) {
+    try {
+      const info = JSON.parse(error.message);
+      return { hasError: true, errorInfo: info };
+    } catch (e) {
+      return { hasError: true, errorInfo: { error: error.message } };
+    }
+  }
+
+  componentDidCatch(error: any, errorInfo: any) {
+    console.error("ErrorBoundary caught an error", error, errorInfo);
+  }
+
+  render() {
+    const { hasError, errorInfo } = (this as any).state;
+    if (hasError) {
+      return (
+        <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 text-center">
+          <div className="w-16 h-16 bg-red-500/10 rounded-2xl flex items-center justify-center mx-auto mb-6">
+            <X className="text-red-500" size={32} />
+          </div>
+          <h1 className="text-2xl font-bold text-white mb-2">Algo salió mal</h1>
+          <p className="text-slate-400 max-w-md mb-8">
+            Hubo un problema al procesar tu solicitud. Por favor, intenta recargar la página.
+          </p>
+          {errorInfo && errorInfo.error && (
+            <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 mb-8 text-left max-w-lg overflow-auto">
+              <p className="text-[10px] font-mono text-red-400 uppercase tracking-widest mb-2">Detalles del error:</p>
+              <p className="text-xs font-mono text-slate-500">{errorInfo.error}</p>
+            </div>
+          )}
+          <button 
+            onClick={() => window.location.reload()}
+            className="bg-emerald-600 text-white px-8 py-3 rounded-2xl font-bold hover:bg-emerald-500 transition-all active:scale-[0.98]"
+          >
+            Recargar Aplicación
+          </button>
+        </div>
+      );
+    }
+
+    return (this as any).props.children;
+  }
+}
+
 export default function App() {
-  const [user, setUser] = useState<User | null>(null);
-  const [authLoading, setAuthLoading] = useState(true);
   const [records, setRecords] = useState<StockRecord[]>([]);
   const [savedReports, setSavedReports] = useState<SavedReport[]>([]);
   const [palletRecords, setPalletRecords] = useState<PalletRecord[]>([]);
@@ -179,32 +234,13 @@ export default function App() {
   };
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (u) => {
-      setUser(u);
-      setAuthLoading(false);
-    });
-    return () => unsubscribe();
-  }, []);
-
-  useEffect(() => {
-    if (!user) {
-      setRecords([]);
-      setSavedReports([]);
-      setPalletRecords([]);
-      setPalletReports([]);
-      setCepasRecords([]);
-      setCepasReports([]);
-      setLoading(false);
-      return;
-    }
-
     setLoading(true);
-    const qRecords = query(collection(db, 'records'), where('uid', '==', user.uid), orderBy('date', 'desc'));
-    const qReports = query(collection(db, 'reports'), where('uid', '==', user.uid), orderBy('created_at', 'desc'));
-    const qPallets = query(collection(db, 'pallets'), where('uid', '==', user.uid), orderBy('date', 'desc'));
-    const qPalletReports = query(collection(db, 'pallet_reports'), where('uid', '==', user.uid), orderBy('created_at', 'desc'));
-    const qCepas = query(collection(db, 'cepas'), where('uid', '==', user.uid), orderBy('date', 'desc'));
-    const qCepasReports = query(collection(db, 'cepas_reports'), where('uid', '==', user.uid), orderBy('created_at', 'desc'));
+    const qRecords = query(collection(db, 'records'), orderBy('date', 'desc'));
+    const qReports = query(collection(db, 'reports'), orderBy('created_at', 'desc'));
+    const qPallets = query(collection(db, 'pallets'), orderBy('date', 'desc'));
+    const qPalletReports = query(collection(db, 'pallet_reports'), orderBy('created_at', 'desc'));
+    const qCepas = query(collection(db, 'cepas'), orderBy('date', 'desc'));
+    const qCepasReports = query(collection(db, 'cepas_reports'), orderBy('created_at', 'desc'));
 
     const unsubRecords = onSnapshot(qRecords, (snap) => {
       setRecords(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as StockRecord)));
@@ -234,7 +270,7 @@ export default function App() {
       unsubCepas();
       unsubCepasReports();
     };
-  }, [user]);
+  }, []);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -268,7 +304,9 @@ export default function App() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newDate || !newKilos || !user) return;
+    if (!newDate || !newKilos) {
+      return;
+    }
 
     try {
       const kilosNum = parseFloat(newKilos);
@@ -287,7 +325,6 @@ export default function App() {
         await addDoc(collection(db, 'records'), {
           date: newDate,
           kilos: kilosNum,
-          uid: user.uid,
           created_at: serverTimestamp()
         });
         setNotification({ message: 'Registro guardado con éxito', type: 'success' });
@@ -336,7 +373,7 @@ export default function App() {
   };
 
   const handleSaveReport = async () => {
-    if (reportData.filter(d => d.hasData).length === 0 || !user) {
+    if (reportData.filter(d => d.hasData).length === 0) {
       setNotification({ message: 'No hay datos registrados en esta quincena para guardar.', type: 'info' });
       return;
     }
@@ -348,7 +385,6 @@ export default function App() {
         total_kilos: totalKilos,
         avg_kilos: avgKilos,
         data_json: reportData,
-        uid: user.uid,
         created_at: serverTimestamp()
       });
 
@@ -366,7 +402,9 @@ export default function App() {
 
   const handlePalletSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newPalletDate || !newPositions || !user) return;
+    if (!newPalletDate || !newPositions) {
+      return;
+    }
 
     try {
       const posNum = parseInt(newPositions);
@@ -385,7 +423,6 @@ export default function App() {
         await addDoc(collection(db, 'pallets'), {
           date: newPalletDate,
           positions: posNum,
-          uid: user.uid,
           created_at: serverTimestamp()
         });
         setNotification({ message: 'Registro de Bianchi guardado', type: 'success' });
@@ -429,7 +466,9 @@ export default function App() {
 
   const handleCepasSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newCepasDate || !newCepasPositions || !user) return;
+    if (!newCepasDate || !newCepasPositions) {
+      return;
+    }
 
     try {
       const posNum = parseInt(newCepasPositions);
@@ -448,7 +487,6 @@ export default function App() {
         await addDoc(collection(db, 'cepas'), {
           date: newCepasDate,
           positions: posNum,
-          uid: user.uid,
           created_at: serverTimestamp()
         });
         setNotification({ message: 'Registro de Cepas guardado', type: 'success' });
@@ -491,14 +529,12 @@ export default function App() {
   };
 
   const handleSaveCepasReport = async (monthData: any[], month: string, total: number, avg: number) => {
-    if (!user) return;
     try {
       await addDoc(collection(db, 'cepas_reports'), {
         month: month,
         total_positions: total,
         avg_positions: avg,
         data_json: monthData,
-        uid: user.uid,
         created_at: serverTimestamp()
       });
       setNotification({ message: 'Reporte mensual guardado con éxito', type: 'success' });
@@ -523,7 +559,6 @@ export default function App() {
   };
 
   const handleSavePalletReport = async (weekData: any[], start: string, end: string, total: number, avg: number) => {
-    if (!user) return;
     try {
       await addDoc(collection(db, 'pallet_reports'), {
         week_start: start,
@@ -531,7 +566,6 @@ export default function App() {
         total_positions: total,
         avg_positions: avg,
         data_json: weekData,
-        uid: user.uid,
         created_at: serverTimestamp()
       });
       setNotification({ message: 'Reporte semanal de Bodegas Bianchi guardado con éxito.', type: 'success' });
@@ -631,7 +665,6 @@ export default function App() {
   };
 
   const handleClearPeriodRecords = async () => {
-    if (!user) return;
     const idsToDelete = records
       .filter(r => reportData.some(d => d.date === r.date))
       .map(r => r.id);
@@ -782,7 +815,7 @@ export default function App() {
   };
 
   const executeRestore = async () => {
-    if (!importData || !user) return;
+    if (!importData) return;
     
     setShowRestoreConfirm(false);
     setLoading(true);
@@ -793,18 +826,16 @@ export default function App() {
       if (!items || !Array.isArray(items)) return;
       setRestoreStatus(`Sincronizando ${label}...`);
       
-      // Firestore batches have a limit of 500 operations
       const BATCH_SIZE = 400;
       for (let i = 0; i < items.length; i += BATCH_SIZE) {
         const batch = writeBatch(db);
         const chunk = items.slice(i, i + BATCH_SIZE);
         
         chunk.forEach(item => {
-          const { id, created_at, ...data } = item;
+          const { id, created_at, uid, ...data } = item;
           const docRef = doc(collection(db, collName));
           batch.set(docRef, {
             ...data,
-            uid: user.uid,
             created_at: serverTimestamp()
           });
         });
@@ -853,7 +884,6 @@ export default function App() {
   };
 
   const clearAllData = async () => {
-    if (!user) return;
     setShowClearConfirm(false);
     setLoading(true);
     setProgress(50);
@@ -861,7 +891,7 @@ export default function App() {
       const collectionsToClear = ['records', 'reports', 'pallets', 'pallet_reports', 'cepas', 'cepas_reports'];
       
       for (const collName of collectionsToClear) {
-        const q = query(collection(db, collName), where('uid', '==', user.uid));
+        const q = query(collection(db, collName));
         const snap = await getDocs(q);
         const batch = writeBatch(db);
         snap.docs.forEach(d => batch.delete(d.ref));
@@ -959,7 +989,8 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans p-4 md:p-8">
+    <ErrorBoundary>
+      <div className="min-h-screen bg-slate-950 text-slate-100 font-sans p-4 md:p-8">
       <div className="max-w-6xl mx-auto space-y-8">
         
         {/* Header */}
@@ -2014,5 +2045,6 @@ export default function App() {
         }
       `}</style>
     </div>
+    </ErrorBoundary>
   );
 }

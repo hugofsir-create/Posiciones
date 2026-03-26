@@ -7,10 +7,9 @@
       "properties": {
         "date": { "type": "string", "description": "Date of the record (YYYY-MM-DD)" },
         "kilos": { "type": "number", "description": "Amount in kilos" },
-        "uid": { "type": "string", "description": "User ID of the owner" },
         "created_at": { "type": "string", "format": "date-time", "description": "Creation timestamp" }
       },
-      "required": ["date", "kilos", "uid"]
+      "required": ["date", "kilos"]
     },
     "StockReport": {
       "title": "StockReport",
@@ -22,10 +21,9 @@
         "total_kilos": { "type": "number" },
         "avg_kilos": { "type": "number" },
         "data_json": { "type": "string", "description": "JSON string of the daily records" },
-        "uid": { "type": "string" },
         "created_at": { "type": "string", "format": "date-time" }
       },
-      "required": ["month", "period", "total_kilos", "uid"]
+      "required": ["month", "period", "total_kilos"]
     },
     "PalletRecord": {
       "title": "PalletRecord",
@@ -34,10 +32,9 @@
       "properties": {
         "date": { "type": "string" },
         "positions": { "type": "number" },
-        "uid": { "type": "string" },
         "created_at": { "type": "string", "format": "date-time" }
       },
-      "required": ["date", "positions", "uid"]
+      "required": ["date", "positions"]
     },
     "PalletReport": {
       "title": "PalletReport",
@@ -49,10 +46,9 @@
         "total_positions": { "type": "number" },
         "avg_positions": { "type": "number" },
         "data_json": { "type": "string" },
-        "uid": { "type": "string" },
         "created_at": { "type": "string", "format": "date-time" }
       },
-      "required": ["week_start", "week_end", "total_positions", "uid"]
+      "required": ["week_start", "week_end", "total_positions"]
     },
     "CepasRecord": {
       "title": "CepasRecord",
@@ -61,10 +57,9 @@
       "properties": {
         "date": { "type": "string" },
         "positions": { "type": "number" },
-        "uid": { "type": "string" },
         "created_at": { "type": "string", "format": "date-time" }
       },
-      "required": ["date", "positions", "uid"]
+      "required": ["date", "positions"]
     },
     "CepasReport": {
       "title": "CepasReport",
@@ -75,10 +70,9 @@
         "total_positions": { "type": "number" },
         "avg_positions": { "type": "number" },
         "data_json": { "type": "string" },
-        "uid": { "type": "string" },
         "created_at": { "type": "string", "format": "date-time" }
       },
-      "required": ["month", "total_positions", "uid"]
+      "required": ["month", "total_positions"]
     }
   },
   "firestore": {
