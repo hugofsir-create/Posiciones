@@ -20,7 +20,8 @@ import {
   Database,
   Upload,
   LogOut,
-  LogIn
+  LogIn,
+  Truck
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -921,6 +922,17 @@ export default function App() {
           </div>
 
           <div className="space-y-4">
+            <div className="relative h-6 w-full">
+              <motion.div
+                className="absolute top-0"
+                initial={{ left: 0 }}
+                animate={{ left: `${progress}%` }}
+                transition={{ type: "spring", stiffness: 50, damping: 20 }}
+                style={{ x: "-50%" }}
+              >
+                <Truck size={20} className="text-emerald-500 fill-emerald-500/10" />
+              </motion.div>
+            </div>
             <div className="h-1 w-full bg-slate-900 rounded-full overflow-hidden border border-slate-800/30">
               <motion.div 
                 className="h-full bg-emerald-600 shadow-[0_0_15px_rgba(16,185,129,0.3)]"
