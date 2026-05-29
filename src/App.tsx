@@ -20,7 +20,8 @@ import {
   Loader2,
   Database,
   Upload,
-  Truck
+  Truck,
+  Warehouse
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -128,6 +129,44 @@ interface CepasReport {
   uid: string;
 }
 
+interface EscorihuelaRecord {
+  id: string;
+  date: string;
+  positions: number;
+  created_at: any;
+  uid?: string;
+}
+
+interface EscorihuelaReport {
+  id: string;
+  week_start: string;
+  week_end: string;
+  total_positions: number;
+  avg_positions: number;
+  data_json: any;
+  created_at: any;
+  uid?: string;
+}
+
+interface LaRuralRecord {
+  id: string;
+  date: string;
+  positions: number;
+  created_at: any;
+  uid?: string;
+}
+
+interface LaRuralReport {
+  id: string;
+  week_start: string;
+  week_end: string;
+  total_positions: number;
+  avg_positions: number;
+  data_json: any;
+  created_at: any;
+  uid?: string;
+}
+
 interface ErrorBoundaryProps {
   children: React.ReactNode;
 }
@@ -195,10 +234,16 @@ export default function App() {
   const [palletReports, setPalletReports] = useState<PalletReport[]>([]);
   const [cepasRecords, setCepasRecords] = useState<CepasRecord[]>([]);
   const [cepasReports, setCepasReports] = useState<CepasReport[]>([]);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'history' | 'bianchi' | 'cepas' | 'backup'>('dashboard');
+  const [escorihuelaRecords, setEscorihuelaRecords] = useState<EscorihuelaRecord[]>([]);
+  const [escorihuelaReports, setEscorihuelaReports] = useState<EscorihuelaReport[]>([]);
+  const [laRuralRecords, setLaRuralRecords] = useState<LaRuralRecord[]>([]);
+  const [laRuralReports, setLaRuralReports] = useState<LaRuralReport[]>([]);
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'history' | 'bianchi' | 'cepas' | 'escorihuela' | 'la_rural' | 'backup'>('dashboard');
   const [selectedReport, setSelectedReport] = useState<SavedReport | null>(null);
   const [selectedPalletReport, setSelectedPalletReport] = useState<PalletReport | null>(null);
   const [selectedCepasReport, setSelectedCepasReport] = useState<CepasReport | null>(null);
+  const [selectedEscorihuelaReport, setSelectedEscorihuelaReport] = useState<EscorihuelaReport | null>(null);
+  const [selectedLaRuralReport, setSelectedLaRuralReport] = useState<LaRuralReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [minLoadingTimePassed, setMinLoadingTimePassed] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -208,16 +253,26 @@ export default function App() {
   const [newPositions, setNewPositions] = useState<string>('');
   const [newCepasDate, setNewCepasDate] = useState(format(startOfToday(), 'yyyy-MM-dd'));
   const [newCepasPositions, setNewCepasPositions] = useState<string>('');
+  const [newEscorihuelaDate, setNewEscorihuelaDate] = useState(format(startOfToday(), 'yyyy-MM-dd'));
+  const [newEscorihuelaPositions, setNewEscorihuelaPositions] = useState<string>('');
+  const [newLaRuralDate, setNewLaRuralDate] = useState(format(startOfToday(), 'yyyy-MM-dd'));
+  const [newLaRuralPositions, setNewLaRuralPositions] = useState<string>('');
   const [reportPeriod, setReportPeriod] = useState<'first' | 'second'>('first');
   const [reportMonth, setReportMonth] = useState(format(startOfToday(), 'yyyy-MM'));
   const [cepasReportMonth, setCepasReportMonth] = useState(format(startOfToday(), 'yyyy-MM'));
   const [palletReportDate, setPalletReportDate] = useState(format(startOfToday(), 'yyyy-MM-dd'));
+  const [escorihuelaReportDate, setEscorihuelaReportDate] = useState(format(startOfToday(), 'yyyy-MM-dd'));
+  const [laRuralReportDate, setLaRuralReportDate] = useState(format(startOfToday(), 'yyyy-MM-dd'));
   const [isEditing, setIsEditing] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isEditingPallet, setIsEditingPallet] = useState(false);
   const [editingPalletId, setEditingPalletId] = useState<string | null>(null);
   const [isEditingCepas, setIsEditingCepas] = useState(false);
   const [editingCepasId, setEditingCepasId] = useState<string | null>(null);
+  const [isEditingEscorihuela, setIsEditingEscorihuela] = useState(false);
+  const [editingEscorihuelaId, setEditingEscorihuelaId] = useState<string | null>(null);
+  const [isEditingLaRural, setIsEditingLaRural] = useState(false);
+  const [editingLaRuralId, setEditingLaRuralId] = useState<string | null>(null);
 
   const [notification, setNotification] = useState<{ message: string, type: 'success' | 'error' | 'info' } | null>(null);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
@@ -241,6 +296,10 @@ export default function App() {
     const qPalletReports = query(collection(db, 'pallet_reports'), orderBy('created_at', 'desc'));
     const qCepas = query(collection(db, 'cepas'), orderBy('date', 'desc'));
     const qCepasReports = query(collection(db, 'cepas_reports'), orderBy('created_at', 'desc'));
+    const qEscorihuela = query(collection(db, 'escorihuela'), orderBy('date', 'desc'));
+    const qEscorihuelaReports = query(collection(db, 'escorihuela_reports'), orderBy('created_at', 'desc'));
+    const qLaRural = query(collection(db, 'la_rural'), orderBy('date', 'desc'));
+    const qLaRuralReports = query(collection(db, 'la_rural_reports'), orderBy('created_at', 'desc'));
 
     const unsubRecords = onSnapshot(qRecords, (snap) => {
       setRecords(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as StockRecord)));
@@ -259,6 +318,18 @@ export default function App() {
     });
     const unsubCepasReports = onSnapshot(qCepasReports, (snap) => {
       setCepasReports(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as CepasReport)));
+    });
+    const unsubEscorihuela = onSnapshot(qEscorihuela, (snap) => {
+      setEscorihuelaRecords(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as EscorihuelaRecord)));
+    });
+    const unsubEscorihuelaReports = onSnapshot(qEscorihuelaReports, (snap) => {
+      setEscorihuelaReports(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as EscorihuelaReport)));
+    });
+    const unsubLaRural = onSnapshot(qLaRural, (snap) => {
+      setLaRuralRecords(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as LaRuralRecord)));
+    });
+    const unsubLaRuralReports = onSnapshot(qLaRuralReports, (snap) => {
+      setLaRuralReports(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as LaRuralReport)));
       setLoading(false);
     });
 
@@ -269,6 +340,10 @@ export default function App() {
       unsubPalletReports();
       unsubCepas();
       unsubCepasReports();
+      unsubEscorihuela();
+      unsubEscorihuelaReports();
+      unsubLaRural();
+      unsubLaRuralReports();
     };
   }, []);
 
@@ -589,6 +664,272 @@ export default function App() {
     });
   };
 
+  const handleEscorihuelaSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newEscorihuelaDate || !newEscorihuelaPositions) {
+      return;
+    }
+
+    try {
+      const posNum = parseInt(newEscorihuelaPositions);
+      if (isNaN(posNum)) {
+        setNotification({ message: 'Por favor ingrese un número válido para las posiciones.', type: 'error' });
+        return;
+      }
+
+      if (isEditingEscorihuela && editingEscorihuelaId) {
+        await updateDoc(doc(db, 'escorihuela', editingEscorihuelaId), {
+          date: newEscorihuelaDate,
+          positions: posNum
+        });
+        setNotification({ message: 'Registro de Escorihuela Gascón actualizado', type: 'success' });
+      } else {
+        await addDoc(collection(db, 'escorihuela'), {
+          date: newEscorihuelaDate,
+          positions: posNum,
+          created_at: serverTimestamp()
+        });
+        setNotification({ message: 'Registro de Escorihuela Gascón guardado', type: 'success' });
+      }
+
+      setNewEscorihuelaPositions('');
+      setIsEditingEscorihuela(false);
+      setEditingEscorihuelaId(null);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'escorihuela');
+    }
+  };
+
+  const handleEscorihuelaDelete = async (id: string) => {
+    setConfirmModal({
+      title: '¿Eliminar registro?',
+      message: '¿Estás seguro de eliminar este registro de posiciones de Escorihuela Gascón?',
+      onConfirm: async () => {
+        try {
+          await deleteDoc(doc(db, 'escorihuela', id));
+          if (isEditingEscorihuela && editingEscorihuelaId === id) {
+            setIsEditingEscorihuela(false);
+            setEditingEscorihuelaId(null);
+            setNewEscorihuelaPositions('');
+          }
+          setNotification({ message: 'Registro eliminado', type: 'success' });
+        } catch (error) {
+          handleFirestoreError(error, OperationType.DELETE, 'escorihuela');
+        }
+      }
+    });
+  };
+
+  const handleEscorihuelaEdit = (record: EscorihuelaRecord) => {
+    setNewEscorihuelaDate(record.date);
+    setNewEscorihuelaPositions(record.positions.toString());
+    setIsEditingEscorihuela(true);
+    setEditingEscorihuelaId(record.id);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleSaveEscorihuelaReport = async (weekData: any[], start: string, end: string, total: number, avg: number) => {
+    try {
+      await addDoc(collection(db, 'escorihuela_reports'), {
+        week_start: start,
+        week_end: end,
+        total_positions: total,
+        avg_positions: avg,
+        data_json: weekData,
+        created_at: serverTimestamp()
+      });
+      setNotification({ message: 'Reporte semanal de Escorihuela Gascón guardado con éxito y almacenado en el historial.', type: 'success' });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'escorihuela_reports');
+    }
+  };
+
+  const handleDeleteEscorihuelaReport = async (id: string) => {
+    setConfirmModal({
+      title: '¿Eliminar reporte?',
+      message: '¿Estás seguro de eliminar este reporte de Escorihuela Gascón?',
+      onConfirm: async () => {
+        try {
+          await deleteDoc(doc(db, 'escorihuela_reports', id));
+          setNotification({ message: 'Reporte eliminado', type: 'success' });
+        } catch (error) {
+          handleFirestoreError(error, OperationType.DELETE, 'escorihuela_reports');
+        }
+      }
+    });
+  };
+
+  // Helper for weekly data (Escorihuela Gascon)
+  const currentEscorihuelaWeekData = useMemo(() => {
+    const baseDate = parseISO(escorihuelaReportDate);
+    const monday = startOfWeek(baseDate, { weekStartsOn: 1 });
+    const sunday = endOfWeek(baseDate, { weekStartsOn: 1 });
+    const days = eachDayOfInterval({ start: monday, end: sunday });
+
+    const data = days.map(day => {
+      const dateStr = format(day, 'yyyy-MM-dd');
+      const record = escorihuelaRecords.find(r => r.date === dateStr);
+      return {
+        date: dateStr,
+        displayDate: format(day, 'EEEE dd', { locale: es }),
+        positions: record ? record.positions : 0,
+        hasData: !!record
+      };
+    });
+
+    const total = data.reduce((acc, curr) => acc + curr.positions, 0);
+    const avg = data.filter(d => d.hasData).length > 0 ? total / data.filter(d => d.hasData).length : 0;
+
+    return { data, total, avg, start: format(monday, 'yyyy-MM-dd'), end: format(sunday, 'yyyy-MM-dd') };
+  }, [escorihuelaRecords, escorihuelaReportDate]);
+
+  const handleExportEscorihuelaExcel = (data: any[], start: string, end: string) => {
+    const dataToExport = data.map(day => ({
+      'Fecha': day.date,
+      'Día': day.displayDate,
+      'Posiciones': day.positions,
+      'Estado': day.hasData ? 'Registrado' : 'Sin datos'
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(dataToExport);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Reporte Escorihuela");
+    XLSX.writeFile(wb, `Reporte_Escorihuela_${start}_al_${end}.xlsx`);
+  };
+
+  const handleLaRuralSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newLaRuralDate || !newLaRuralPositions) {
+      return;
+    }
+
+    try {
+      const posNum = parseInt(newLaRuralPositions);
+      if (isNaN(posNum)) {
+        setNotification({ message: 'Por favor ingrese un número válido para las posiciones.', type: 'error' });
+        return;
+      }
+
+      if (isEditingLaRural && editingLaRuralId) {
+        await updateDoc(doc(db, 'la_rural', editingLaRuralId), {
+          date: newLaRuralDate,
+          positions: posNum
+        });
+        setNotification({ message: 'Registro de La Rural (Rutini Wines) actualizado', type: 'success' });
+      } else {
+        await addDoc(collection(db, 'la_rural'), {
+          date: newLaRuralDate,
+          positions: posNum,
+          created_at: serverTimestamp()
+        });
+        setNotification({ message: 'Registro de La Rural (Rutini Wines) guardado', type: 'success' });
+      }
+
+      setNewLaRuralPositions('');
+      setIsEditingLaRural(false);
+      setEditingLaRuralId(null);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'la_rural');
+    }
+  };
+
+  const handleLaRuralDelete = async (id: string) => {
+    setConfirmModal({
+      title: '¿Eliminar registro?',
+      message: '¿Estás seguro de eliminar este registro de posiciones de La Rural (Rutini Wines)?',
+      onConfirm: async () => {
+        try {
+          await deleteDoc(doc(db, 'la_rural', id));
+          if (isEditingLaRural && editingLaRuralId === id) {
+            setIsEditingLaRural(false);
+            setEditingLaRuralId(null);
+            setNewLaRuralPositions('');
+          }
+          setNotification({ message: 'Registro eliminado', type: 'success' });
+        } catch (error) {
+          handleFirestoreError(error, OperationType.DELETE, 'la_rural');
+        }
+      }
+    });
+  };
+
+  const handleLaRuralEdit = (record: LaRuralRecord) => {
+    setNewLaRuralDate(record.date);
+    setNewLaRuralPositions(record.positions.toString());
+    setIsEditingLaRural(true);
+    setEditingLaRuralId(record.id);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleSaveLaRuralReport = async (weekData: any[], start: string, end: string, total: number, avg: number) => {
+    try {
+      await addDoc(collection(db, 'la_rural_reports'), {
+        week_start: start,
+        week_end: end,
+        total_positions: total,
+        avg_positions: avg,
+        data_json: weekData,
+        created_at: serverTimestamp()
+      });
+      setNotification({ message: 'Reporte semanal de La Rural (Rutini Wines) guardado con éxito y almacenado en el historial.', type: 'success' });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'la_rural_reports');
+    }
+  };
+
+  const handleDeleteLaRuralReport = async (id: string) => {
+    setConfirmModal({
+      title: '¿Eliminar reporte?',
+      message: '¿Estás seguro de eliminar este reporte de La Rural (Rutini Wines)?',
+      onConfirm: async () => {
+        try {
+          await deleteDoc(doc(db, 'la_rural_reports', id));
+          setNotification({ message: 'Reporte eliminado', type: 'success' });
+        } catch (error) {
+          handleFirestoreError(error, OperationType.DELETE, 'la_rural_reports');
+        }
+      }
+    });
+  };
+
+  // Helper for weekly data (La Rural - Rutini Wines)
+  const currentLaRuralWeekData = useMemo(() => {
+    const baseDate = parseISO(laRuralReportDate);
+    const monday = startOfWeek(baseDate, { weekStartsOn: 1 });
+    const sunday = endOfWeek(baseDate, { weekStartsOn: 1 });
+    const days = eachDayOfInterval({ start: monday, end: sunday });
+
+    const data = days.map(day => {
+      const dateStr = format(day, 'yyyy-MM-dd');
+      const record = laRuralRecords.find(r => r.date === dateStr);
+      return {
+        date: dateStr,
+        displayDate: format(day, 'EEEE dd', { locale: es }),
+        positions: record ? record.positions : 0,
+        hasData: !!record
+      };
+    });
+
+    const total = data.reduce((acc, curr) => acc + curr.positions, 0);
+    const avg = data.filter(d => d.hasData).length > 0 ? total / data.filter(d => d.hasData).length : 0;
+
+    return { data, total, avg, start: format(monday, 'yyyy-MM-dd'), end: format(sunday, 'yyyy-MM-dd') };
+  }, [laRuralRecords, laRuralReportDate]);
+
+  const handleExportLaRuralExcel = (data: any[], start: string, end: string) => {
+    const dataToExport = data.map(day => ({
+      'Fecha': day.date,
+      'Día': day.displayDate,
+      'Posiciones': day.positions,
+      'Estado': day.hasData ? 'Registrado' : 'Sin datos'
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(dataToExport);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Reporte La Rural");
+    XLSX.writeFile(wb, `Reporte_La_Rural_${start}_al_${end}.xlsx`);
+  };
+
   // Helper for weekly data (Bodegas Bianchi)
   const currentWeekData = useMemo(() => {
     const baseDate = parseISO(palletReportDate);
@@ -767,6 +1108,10 @@ export default function App() {
       palletReports,
       cepasRecords,
       cepasReports,
+      escorihuelaRecords,
+      escorihuelaReports,
+      laRuralRecords,
+      laRuralReports,
       version: '1.0',
       exportedAt: new Date().toISOString()
     };
@@ -795,7 +1140,7 @@ export default function App() {
         const content = e.target?.result as string;
         const data = JSON.parse(content);
         
-        if (!data.records && !data.palletRecords && !data.cepasRecords) {
+        if (!data.records && !data.palletRecords && !data.cepasRecords && !data.escorihuelaRecords && !data.laRuralRecords) {
           throw new Error('Formato de backup inválido: No se encontraron registros');
         }
 
@@ -847,27 +1192,43 @@ export default function App() {
     try {
       if (importData.records) {
         await syncEntity('records', importData.records, 'Registros Kilos');
-        setProgress(20);
+        setProgress(10);
       }
       if (importData.savedReports) {
         await syncEntity('reports', importData.savedReports, 'Reportes Quincenales');
-        setProgress(40);
+        setProgress(20);
       }
       if (importData.palletRecords) {
         await syncEntity('pallets', importData.palletRecords, 'Registros Bianchi');
-        setProgress(60);
+        setProgress(30);
       }
       if (importData.palletReports) {
         await syncEntity('pallet_reports', importData.palletReports, 'Reportes Bianchi');
-        setProgress(75);
+        setProgress(40);
       }
       if (importData.cepasRecords) {
         await syncEntity('cepas', importData.cepasRecords, 'Registros Cepas');
-        setProgress(90);
+        setProgress(50);
       }
       if (importData.cepasReports) {
         await syncEntity('cepas_reports', importData.cepasReports, 'Reportes Cepas');
-        setProgress(95);
+        setProgress(60);
+      }
+      if (importData.escorihuelaRecords) {
+        await syncEntity('escorihuela', importData.escorihuelaRecords, 'Registros Escorihuela Gascón');
+        setProgress(70);
+      }
+      if (importData.escorihuelaReports) {
+        await syncEntity('escorihuela_reports', importData.escorihuelaReports, 'Reportes Escorihuela Gascón');
+        setProgress(80);
+      }
+      if (importData.laRuralRecords) {
+        await syncEntity('la_rural', importData.laRuralRecords, 'Registros La Rural (Rutini Wines)');
+        setProgress(90);
+      }
+      if (importData.laRuralReports) {
+        await syncEntity('la_rural_reports', importData.laRuralReports, 'Reportes La Rural (Rutini Wines)');
+        setProgress(98);
       }
       
       setRestoreStatus('Restauración completada');
@@ -888,7 +1249,7 @@ export default function App() {
     setLoading(true);
     setProgress(50);
     try {
-      const collectionsToClear = ['records', 'reports', 'pallets', 'pallet_reports', 'cepas', 'cepas_reports'];
+      const collectionsToClear = ['records', 'reports', 'pallets', 'pallet_reports', 'cepas', 'cepas_reports', 'escorihuela', 'escorihuela_reports', 'la_rural', 'la_rural_reports'];
       
       for (const collName of collectionsToClear) {
         const q = query(collection(db, collName));
@@ -905,6 +1266,10 @@ export default function App() {
       localStorage.removeItem('pallet_reports_backup');
       localStorage.removeItem('cepas_records_backup');
       localStorage.removeItem('cepas_reports_backup');
+      localStorage.removeItem('escorihuela_records_backup');
+      localStorage.removeItem('escorihuela_reports_backup');
+      localStorage.removeItem('la_rural_records_backup');
+      localStorage.removeItem('la_rural_reports_backup');
       
       setNotification({ message: 'Todos los datos han sido eliminados correctamente.', type: 'success' });
     } catch (err) {
@@ -1005,11 +1370,11 @@ export default function App() {
             </p>
           </div>
           
-          <div className="flex bg-slate-900 p-1 rounded-2xl border border-slate-800 shadow-xl">
+          <div className="flex flex-wrap justify-center gap-1 md:gap-1.5 bg-slate-900 p-1.5 rounded-2xl border border-slate-800 shadow-xl max-w-full">
             <button 
               onClick={() => setActiveTab('history')}
               className={cn(
-                "flex items-center gap-2 px-6 py-2 rounded-xl text-sm font-semibold transition-all",
+                "flex items-center gap-2 px-4 md:px-5 py-2 rounded-xl text-sm font-semibold transition-all",
                 activeTab === 'history' ? "bg-emerald-600 text-white shadow-lg shadow-emerald-900/20" : "text-slate-400 hover:text-slate-200"
               )}
             >
@@ -1019,7 +1384,7 @@ export default function App() {
             <button 
               onClick={() => setActiveTab('dashboard')}
               className={cn(
-                "flex items-center gap-2 px-6 py-2 rounded-xl text-sm font-semibold transition-all",
+                "flex items-center gap-2 px-4 md:px-5 py-2 rounded-xl text-sm font-semibold transition-all",
                 activeTab === 'dashboard' ? "bg-emerald-600 text-white shadow-lg shadow-emerald-900/20" : "text-slate-400 hover:text-slate-200"
               )}
             >
@@ -1029,7 +1394,7 @@ export default function App() {
             <button 
               onClick={() => setActiveTab('bianchi')}
               className={cn(
-                "flex items-center gap-2 px-6 py-2 rounded-xl text-sm font-semibold transition-all",
+                "flex items-center gap-2 px-4 md:px-5 py-2 rounded-xl text-sm font-semibold transition-all",
                 activeTab === 'bianchi' ? "bg-emerald-600 text-white shadow-lg shadow-emerald-900/20" : "text-slate-400 hover:text-slate-200"
               )}
             >
@@ -1039,7 +1404,7 @@ export default function App() {
             <button 
               onClick={() => setActiveTab('cepas')}
               className={cn(
-                "flex items-center gap-2 px-6 py-2 rounded-xl text-sm font-semibold transition-all",
+                "flex items-center gap-2 px-4 md:px-5 py-2 rounded-xl text-sm font-semibold transition-all",
                 activeTab === 'cepas' ? "bg-emerald-600 text-white shadow-lg shadow-emerald-900/20" : "text-slate-400 hover:text-slate-200"
               )}
             >
@@ -1047,9 +1412,29 @@ export default function App() {
               Cepas
             </button>
             <button 
+              onClick={() => setActiveTab('escorihuela')}
+              className={cn(
+                "flex items-center gap-2 px-4 md:px-5 py-2 rounded-xl text-sm font-semibold transition-all",
+                activeTab === 'escorihuela' ? "bg-emerald-600 text-white shadow-lg shadow-emerald-900/20" : "text-slate-400 hover:text-slate-200"
+              )}
+            >
+              <Truck size={18} />
+              Escorihuela Gascón
+            </button>
+            <button 
+              onClick={() => setActiveTab('la_rural')}
+              className={cn(
+                "flex items-center gap-2 px-4 md:px-5 py-2 rounded-xl text-sm font-semibold transition-all",
+                activeTab === 'la_rural' ? "bg-emerald-600 text-white shadow-lg shadow-emerald-900/20" : "text-slate-400 hover:text-slate-200"
+              )}
+            >
+              <Warehouse size={18} />
+              La Rural (Rutini Wines)
+            </button>
+            <button 
               onClick={() => setActiveTab('backup')}
               className={cn(
-                "flex items-center gap-2 px-6 py-2 rounded-xl text-sm font-semibold transition-all",
+                "flex items-center gap-2 px-4 md:px-5 py-2 rounded-xl text-sm font-semibold transition-all",
                 activeTab === 'backup' ? "bg-emerald-600 text-white shadow-lg shadow-emerald-900/20" : "text-slate-400 hover:text-slate-200"
               )}
             >
@@ -1711,6 +2096,318 @@ export default function App() {
               </div>
             </div>
           </div>
+        ) : activeTab === 'escorihuela' ? (
+          <div className="space-y-8">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <h2 className="text-3xl font-bold text-slate-200">Escorihuela Gascón</h2>
+                <p className="text-slate-400">Control semanal de posiciones de pallets (7 días)</p>
+              </div>
+              <div className="flex flex-wrap items-center gap-4">
+                <div className="bg-slate-900 p-2 rounded-2xl border border-slate-800 shadow-xl flex items-center gap-3">
+                  <span className="text-[10px] uppercase tracking-wider text-slate-500 font-bold ml-2">Ver Semana:</span>
+                  <input 
+                    type="date" 
+                    value={escorihuelaReportDate}
+                    onChange={(e) => setEscorihuelaReportDate(e.target.value)}
+                    className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-sm text-slate-200 outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+                <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800 shadow-xl">
+                  <span className="text-xs uppercase tracking-wider text-slate-500 font-semibold block">Promedio Semanal</span>
+                  <span className="text-xl font-mono font-bold text-emerald-500">{currentEscorihuelaWeekData.avg.toFixed(1)} pos</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              <div className="lg:col-span-1 space-y-6">
+                <section className="bg-slate-900 rounded-3xl p-6 shadow-xl border border-slate-800">
+                  <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-500 mb-6 flex items-center gap-2">
+                    {isEditingEscorihuela ? <Pencil size={16} className="text-amber-500" /> : <Plus size={16} />} 
+                    {isEditingEscorihuela ? 'Editar Posiciones' : 'Nuevo Registro'}
+                  </h2>
+                  <form onSubmit={handleEscorihuelaSubmit} className="space-y-4">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-400 mb-1 ml-1">Fecha</label>
+                      <input 
+                        type="date" 
+                        value={newEscorihuelaDate}
+                        onChange={(e) => setNewEscorihuelaDate(e.target.value)}
+                        className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none text-slate-200"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-400 mb-1 ml-1">Posiciones de Pallets</label>
+                      <input 
+                        type="number" 
+                        placeholder="0"
+                        value={newEscorihuelaPositions}
+                        onChange={(e) => setNewEscorihuelaPositions(e.target.value)}
+                        className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none font-mono text-slate-200"
+                        required
+                      />
+                    </div>
+                    <button 
+                      type="submit"
+                      className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl shadow-lg transition-all flex items-center justify-center gap-2"
+                    >
+                      <Save size={18} />
+                      {isEditingEscorihuela ? 'Actualizar' : 'Guardar'}
+                    </button>
+                  </form>
+                </section>
+
+                <section className="bg-slate-900 rounded-3xl p-6 shadow-xl border border-slate-800">
+                  <h2 className="text-xs font-semibold uppercase tracking-widest text-slate-500 mb-4">Últimos Registros</h2>
+                  <div className="space-y-3 max-h-[300px] overflow-y-auto custom-scrollbar pr-2">
+                    {escorihuelaRecords.slice(0, 10).map((record) => (
+                      <div key={record.id} className="flex items-center justify-between p-3 bg-slate-950 rounded-xl border border-slate-800 group transition-all">
+                        <div>
+                          <p className="text-sm font-semibold text-slate-200">{format(parseISO(record.date), 'dd MMM yyyy', { locale: es })}</p>
+                          <p className="text-xs text-slate-500">{record.positions} posiciones</p>
+                        </div>
+                        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                          <button onClick={() => handleEscorihuelaEdit(record)} className="p-2 text-slate-500 hover:text-amber-500"><Pencil size={16} /></button>
+                          <button onClick={() => handleEscorihuelaDelete(record.id)} className="p-2 text-slate-500 hover:text-red-500"><Trash2 size={16} /></button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              </div>
+
+              <div className="lg:col-span-2 space-y-6">
+                <section className="bg-slate-900 rounded-3xl p-6 shadow-xl border border-slate-800">
+                  <div className="flex items-center justify-between mb-8">
+                    <div>
+                      <h2 className="text-xl font-bold text-slate-200">Reporte Semanal Escorihuela Gascón</h2>
+                      <p className="text-sm text-slate-500">Semana del {format(parseISO(currentEscorihuelaWeekData.start), 'dd/MM')} al {format(parseISO(currentEscorihuelaWeekData.end), 'dd/MM')}</p>
+                    </div>
+                    <button 
+                      onClick={() => handleExportEscorihuelaExcel(currentEscorihuelaWeekData.data, currentEscorihuelaWeekData.start, currentEscorihuelaWeekData.end)}
+                      className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-bold rounded-xl transition-all flex items-center gap-2"
+                    >
+                      <Download size={16} /> Excel
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-4 mb-8">
+                    {currentEscorihuelaWeekData.data.map((day, idx) => (
+                      <div key={idx} className={cn(
+                        "p-4 rounded-2xl border transition-all",
+                        day.hasData ? "bg-slate-950 border-emerald-500/30" : "bg-slate-950/50 border-slate-800 opacity-50"
+                      )}>
+                        <p className="text-[10px] uppercase tracking-wider text-slate-500 font-bold mb-1">{day.displayDate}</p>
+                        <p className="text-lg font-mono font-bold text-slate-200">{day.positions} <span className="text-[10px] text-slate-500">pos</span></p>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="h-[250px] w-full mb-8">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={currentEscorihuelaWeekData.data}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                        <XAxis dataKey="displayDate" stroke="#64748b" fontSize={10} tickLine={false} axisLine={false} />
+                        <YAxis stroke="#64748b" fontSize={10} tickLine={false} axisLine={false} />
+                        <Tooltip contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '12px' }} />
+                        <Line type="monotone" dataKey="positions" stroke="#10b981" strokeWidth={3} dot={{ fill: '#10b981' }} activeDot={{ r: 8 }} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+
+                  <button 
+                    onClick={() => handleSaveEscorihuelaReport(currentEscorihuelaWeekData.data, currentEscorihuelaWeekData.start, currentEscorihuelaWeekData.end, currentEscorihuelaWeekData.total, currentEscorihuelaWeekData.avg)}
+                    className="w-full py-3 bg-slate-100 hover:bg-white text-slate-950 font-bold rounded-xl transition-all flex items-center justify-center gap-2"
+                  >
+                    <Save size={18} />
+                    Guardar Reporte Semanal
+                  </button>
+                </section>
+
+                <section className="bg-slate-900 rounded-3xl p-6 shadow-xl border border-slate-800">
+                  <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-500 mb-6">Historial Semanal Escorihuela Gascón</h2>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {escorihuelaReports.map((report) => (
+                      <div key={report.id} className="bg-slate-950 p-4 rounded-2xl border border-slate-800 group hover:border-emerald-500/30 transition-all">
+                        <div className="flex justify-between items-start mb-2">
+                          <p className="text-sm font-bold text-slate-200">{format(parseISO(report.week_start), 'dd/MM')} - {format(parseISO(report.week_end), 'dd/MM')}</p>
+                          <button onClick={() => handleDeleteEscorihuelaReport(report.id)} className="text-slate-600 hover:text-red-500 opacity-0 group-hover:opacity-100"><Trash2 size={14} /></button>
+                        </div>
+                        <div className="flex gap-4">
+                          <div>
+                            <p className="text-[10px] text-slate-500 uppercase">Promedio</p>
+                            <p className="text-sm font-mono text-emerald-500">{report.avg_positions.toFixed(1)}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] text-slate-500 uppercase">Total</p>
+                            <p className="text-sm font-mono text-slate-300">{report.total_positions}</p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              </div>
+            </div>
+          </div>
+        ) : activeTab === 'la_rural' ? (
+          <div className="space-y-8">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <h2 className="text-3xl font-bold text-slate-200">La Rural (Rutini Wines)</h2>
+                <p className="text-slate-400">Control semanal de posiciones de pallets (7 días)</p>
+              </div>
+              <div className="flex flex-wrap items-center gap-4">
+                <div className="bg-slate-900 p-2 rounded-2xl border border-slate-800 shadow-xl flex items-center gap-3">
+                  <span className="text-[10px] uppercase tracking-wider text-slate-500 font-bold ml-2">Ver Semana:</span>
+                  <input 
+                    type="date" 
+                    value={laRuralReportDate}
+                    onChange={(e) => setLaRuralReportDate(e.target.value)}
+                    className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-sm text-slate-200 outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+                <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800 shadow-xl">
+                  <span className="text-xs uppercase tracking-wider text-slate-500 font-semibold block">Promedio Semanal</span>
+                  <span className="text-xl font-mono font-bold text-emerald-500">{currentLaRuralWeekData.avg.toFixed(1)} pos</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              <div className="lg:col-span-1 space-y-6">
+                <section className="bg-slate-900 rounded-3xl p-6 shadow-xl border border-slate-800">
+                  <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-500 mb-6 flex items-center gap-2">
+                    {isEditingLaRural ? <Pencil size={16} className="text-amber-500" /> : <Plus size={16} />} 
+                    {isEditingLaRural ? 'Editar Posiciones' : 'Nuevo Registro'}
+                  </h2>
+                  <form onSubmit={handleLaRuralSubmit} className="space-y-4">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-400 mb-1 ml-1">Fecha</label>
+                      <input 
+                        type="date" 
+                        value={newLaRuralDate}
+                        onChange={(e) => setNewLaRuralDate(e.target.value)}
+                        className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none text-slate-200"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-400 mb-1 ml-1">Posiciones de Pallets</label>
+                      <input 
+                        type="number" 
+                        placeholder="0"
+                        value={newLaRuralPositions}
+                        onChange={(e) => setNewLaRuralPositions(e.target.value)}
+                        className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none font-mono text-slate-200"
+                        required
+                      />
+                    </div>
+                    <button 
+                      type="submit"
+                      className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl shadow-lg transition-all flex items-center justify-center gap-2"
+                    >
+                      <Save size={18} />
+                      {isEditingLaRural ? 'Actualizar' : 'Guardar'}
+                    </button>
+                  </form>
+                </section>
+
+                <section className="bg-slate-900 rounded-3xl p-6 shadow-xl border border-slate-800">
+                  <h2 className="text-xs font-semibold uppercase tracking-widest text-slate-500 mb-4">Últimos Registros</h2>
+                  <div className="space-y-3 max-h-[300px] overflow-y-auto custom-scrollbar pr-2">
+                    {laRuralRecords.slice(0, 10).map((record) => (
+                      <div key={record.id} className="flex items-center justify-between p-3 bg-slate-950 rounded-xl border border-slate-800 group transition-all">
+                        <div>
+                          <p className="text-sm font-semibold text-slate-200">{format(parseISO(record.date), 'dd MMM yyyy', { locale: es })}</p>
+                          <p className="text-xs text-slate-500">{record.positions} posiciones</p>
+                        </div>
+                        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                          <button onClick={() => handleLaRuralEdit(record)} className="p-2 text-slate-500 hover:text-amber-500"><Pencil size={16} /></button>
+                          <button onClick={() => handleLaRuralDelete(record.id)} className="p-2 text-slate-500 hover:text-red-500"><Trash2 size={16} /></button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              </div>
+
+              <div className="lg:col-span-2 space-y-6">
+                <section className="bg-slate-900 rounded-3xl p-6 shadow-xl border border-slate-800">
+                  <div className="flex items-center justify-between mb-8">
+                    <div>
+                      <h2 className="text-xl font-bold text-slate-200">Reporte Semanal La Rural (Rutini Wines)</h2>
+                      <p className="text-sm text-slate-500">Semana del {format(parseISO(currentLaRuralWeekData.start), 'dd/MM')} al {format(parseISO(currentLaRuralWeekData.end), 'dd/MM')}</p>
+                    </div>
+                    <button 
+                      onClick={() => handleExportLaRuralExcel(currentLaRuralWeekData.data, currentLaRuralWeekData.start, currentLaRuralWeekData.end)}
+                      className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-bold rounded-xl transition-all flex items-center gap-2"
+                    >
+                      <Download size={16} /> Excel
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-4 mb-8">
+                    {currentLaRuralWeekData.data.map((day, idx) => (
+                      <div key={idx} className={cn(
+                        "p-4 rounded-2xl border transition-all",
+                        day.hasData ? "bg-slate-950 border-emerald-500/30" : "bg-slate-950/50 border-slate-800 opacity-50"
+                      )}>
+                        <p className="text-[10px] uppercase tracking-wider text-slate-500 font-bold mb-1">{day.displayDate}</p>
+                        <p className="text-lg font-mono font-bold text-slate-200">{day.positions} <span className="text-[10px] text-slate-500">pos</span></p>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="h-[250px] w-full mb-8">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={currentLaRuralWeekData.data}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                        <XAxis dataKey="displayDate" stroke="#64748b" fontSize={10} tickLine={false} axisLine={false} />
+                        <YAxis stroke="#64748b" fontSize={10} tickLine={false} axisLine={false} />
+                        <Tooltip contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '12px' }} />
+                        <Line type="monotone" dataKey="positions" stroke="#10b981" strokeWidth={3} dot={{ fill: '#10b981' }} activeDot={{ r: 8 }} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+
+                  <button 
+                    onClick={() => handleSaveLaRuralReport(currentLaRuralWeekData.data, currentLaRuralWeekData.start, currentLaRuralWeekData.end, currentLaRuralWeekData.total, currentLaRuralWeekData.avg)}
+                    className="w-full py-3 bg-slate-100 hover:bg-white text-slate-950 font-bold rounded-xl transition-all flex items-center justify-center gap-2"
+                  >
+                    <Save size={18} />
+                    Guardar Reporte Semanal
+                  </button>
+                </section>
+
+                <section className="bg-slate-900 rounded-3xl p-6 shadow-xl border border-slate-800">
+                  <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-500 mb-6">Historial Semanal La Rural (Rutini Wines)</h2>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {laRuralReports.map((report) => (
+                      <div key={report.id} className="bg-slate-950 p-4 rounded-2xl border border-slate-800 group hover:border-emerald-500/30 transition-all">
+                        <div className="flex justify-between items-start mb-2">
+                          <p className="text-sm font-bold text-slate-200">{format(parseISO(report.week_start), 'dd/MM')} - {format(parseISO(report.week_end), 'dd/MM')}</p>
+                          <button onClick={() => handleDeleteLaRuralReport(report.id)} className="text-slate-600 hover:text-red-500 opacity-0 group-hover:opacity-100"><Trash2 size={14} /></button>
+                        </div>
+                        <div className="flex gap-4">
+                          <div>
+                            <p className="text-[10px] text-slate-500 uppercase">Promedio</p>
+                            <p className="text-sm font-mono text-emerald-500">{report.avg_positions.toFixed(1)}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] text-slate-500 uppercase">Total</p>
+                            <p className="text-sm font-mono text-slate-300">{report.total_positions}</p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              </div>
+            </div>
+          </div>
         ) : activeTab === 'backup' ? (
           <div className="space-y-8">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -1804,6 +2501,14 @@ export default function App() {
                 <div>
                   <p className="text-slate-500 text-xs">Registros Cepas</p>
                   <p className="text-xl font-mono font-bold text-slate-300">{cepasRecords.length}</p>
+                </div>
+                <div>
+                  <p className="text-slate-500 text-xs">Registros Escorihuela Gascón</p>
+                  <p className="text-xl font-mono font-bold text-slate-300">{escorihuelaRecords.length}</p>
+                </div>
+                <div>
+                  <p className="text-slate-500 text-xs">Registros La Rural (Rutini Wines)</p>
+                  <p className="text-xl font-mono font-bold text-slate-300">{laRuralRecords.length}</p>
                 </div>
               </div>
             </div>
@@ -1969,6 +2674,8 @@ export default function App() {
                     <li>• Registros Kilos: {importData?.records?.length || 0}</li>
                     <li>• Registros Bianchi: {importData?.palletRecords?.length || 0}</li>
                     <li>• Registros Cepas: {importData?.cepasRecords?.length || 0}</li>
+                    <li>• Registros Escorihuela Gascón: {importData?.escorihuelaRecords?.length || 0}</li>
+                    <li>• Registros La Rural: {importData?.laRuralRecords?.length || 0}</li>
                   </ul>
                 </div>
               </div>

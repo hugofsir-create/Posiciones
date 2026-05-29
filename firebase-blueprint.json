@@ -73,6 +73,56 @@
         "created_at": { "type": "string", "format": "date-time" }
       },
       "required": ["month", "total_positions"]
+    },
+    "EscorihuelaRecord": {
+      "title": "EscorihuelaRecord",
+      "description": "Daily record of positions (Escorihuela Gascón)",
+      "type": "object",
+      "properties": {
+        "date": { "type": "string" },
+        "positions": { "type": "number" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["date", "positions"]
+    },
+    "EscorihuelaReport": {
+      "title": "EscorihuelaReport",
+      "description": "Weekly report of positions (Escorihuela Gascón)",
+      "type": "object",
+      "properties": {
+        "week_start": { "type": "string" },
+        "week_end": { "type": "string" },
+        "total_positions": { "type": "number" },
+        "avg_positions": { "type": "number" },
+        "data_json": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["week_start", "week_end", "total_positions"]
+    },
+    "LaRuralRecord": {
+      "title": "LaRuralRecord",
+      "description": "Daily record of positions (La Rural - Rutini Wines)",
+      "type": "object",
+      "properties": {
+        "date": { "type": "string" },
+        "positions": { "type": "number" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["date", "positions"]
+    },
+    "LaRuralReport": {
+      "title": "LaRuralReport",
+      "description": "Weekly report of positions (La Rural - Rutini Wines)",
+      "type": "object",
+      "properties": {
+        "week_start": { "type": "string" },
+        "week_end": { "type": "string" },
+        "total_positions": { "type": "number" },
+        "avg_positions": { "type": "number" },
+        "data_json": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["week_start", "week_end", "total_positions"]
     }
   },
   "firestore": {
@@ -81,6 +131,10 @@
     "/pallets": { "schema": "PalletRecord", "description": "Collection of daily pallet records" },
     "/pallet_reports": { "schema": "PalletReport", "description": "Collection of weekly pallet reports" },
     "/cepas": { "schema": "CepasRecord", "description": "Collection of daily cepas records" },
-    "/cepas_reports": { "schema": "CepasReport", "description": "Collection of monthly cepas reports" }
+    "/cepas_reports": { "schema": "CepasReport", "description": "Collection of monthly cepas reports" },
+    "/escorihuela": { "schema": "EscorihuelaRecord", "description": "Collection of daily Escorihuela Gascón records" },
+    "/escorihuela_reports": { "schema": "EscorihuelaReport", "description": "Collection of weekly Escorihuela Gascón reports" },
+    "/la_rural": { "schema": "LaRuralRecord", "description": "Collection of daily La Rural (Rutini Wines) records" },
+    "/la_rural_reports": { "schema": "LaRuralReport", "description": "Collection of weekly La Rural (Rutini Wines) reports" }
   }
 }
