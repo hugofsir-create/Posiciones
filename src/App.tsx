@@ -139,8 +139,7 @@ interface EscorihuelaRecord {
 
 interface EscorihuelaReport {
   id: string;
-  week_start: string;
-  week_end: string;
+  month: string;
   total_positions: number;
   avg_positions: number;
   data_json: any;
@@ -158,8 +157,7 @@ interface LaRuralRecord {
 
 interface LaRuralReport {
   id: string;
-  week_start: string;
-  week_end: string;
+  month: string;
   total_positions: number;
   avg_positions: number;
   data_json: any;
@@ -261,8 +259,8 @@ export default function App() {
   const [reportMonth, setReportMonth] = useState(format(startOfToday(), 'yyyy-MM'));
   const [cepasReportMonth, setCepasReportMonth] = useState(format(startOfToday(), 'yyyy-MM'));
   const [palletReportDate, setPalletReportDate] = useState(format(startOfToday(), 'yyyy-MM-dd'));
-  const [escorihuelaReportDate, setEscorihuelaReportDate] = useState(format(startOfToday(), 'yyyy-MM-dd'));
-  const [laRuralReportDate, setLaRuralReportDate] = useState(format(startOfToday(), 'yyyy-MM-dd'));
+  const [escorihuelaReportMonth, setEscorihuelaReportMonth] = useState(format(startOfToday(), 'yyyy-MM'));
+  const [laRuralReportMonth, setLaRuralReportMonth] = useState(format(startOfToday(), 'yyyy-MM'));
   const [isEditing, setIsEditing] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isEditingPallet, setIsEditingPallet] = useState(false);
@@ -728,17 +726,16 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const handleSaveEscorihuelaReport = async (weekData: any[], start: string, end: string, total: number, avg: number) => {
+  const handleSaveEscorihuelaReport = async (monthData: any[], month: string, total: number, avg: number) => {
     try {
       await addDoc(collection(db, 'escorihuela_reports'), {
-        week_start: start,
-        week_end: end,
+        month: month,
         total_positions: total,
         avg_positions: avg,
-        data_json: weekData,
+        data_json: monthData,
         created_at: serverTimestamp()
       });
-      setNotification({ message: 'Reporte semanal de Escorihuela Gascón guardado con éxito y almacenado en el historial.', type: 'success' });
+      setNotification({ message: 'Reporte mensual de Escorihuela Gascón guardado con éxito y almacenado en el historial.', type: 'success' });
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, 'escorihuela_reports');
     }
@@ -759,19 +756,20 @@ export default function App() {
     });
   };
 
-  // Helper for weekly data (Escorihuela Gascon)
-  const currentEscorihuelaWeekData = useMemo(() => {
-    const baseDate = parseISO(escorihuelaReportDate);
-    const monday = startOfWeek(baseDate, { weekStartsOn: 1 });
-    const sunday = endOfWeek(baseDate, { weekStartsOn: 1 });
-    const days = eachDayOfInterval({ start: monday, end: sunday });
+  // Helper for monthly data (Escorihuela Gascon)
+  const escorihuelaMonthlyData = useMemo(() => {
+    if (!escorihuelaReportMonth) return { data: [], total: 0, avg: 0, month: '' };
+    const [year, month] = escorihuelaReportMonth.split('-').map(Number);
+    const start = startOfMonth(new Date(year, month - 1));
+    const end = endOfMonth(start);
+    const days = eachDayOfInterval({ start, end });
 
     const data = days.map(day => {
       const dateStr = format(day, 'yyyy-MM-dd');
       const record = escorihuelaRecords.find(r => r.date === dateStr);
       return {
         date: dateStr,
-        displayDate: format(day, 'EEEE dd', { locale: es }),
+        displayDate: format(day, 'dd/MM'),
         positions: record ? record.positions : 0,
         hasData: !!record
       };
@@ -780,13 +778,12 @@ export default function App() {
     const total = data.reduce((acc, curr) => acc + curr.positions, 0);
     const avg = data.filter(d => d.hasData).length > 0 ? total / data.filter(d => d.hasData).length : 0;
 
-    return { data, total, avg, start: format(monday, 'yyyy-MM-dd'), end: format(sunday, 'yyyy-MM-dd') };
-  }, [escorihuelaRecords, escorihuelaReportDate]);
+    return { data, total, avg, month: escorihuelaReportMonth };
+  }, [escorihuelaRecords, escorihuelaReportMonth]);
 
-  const handleExportEscorihuelaExcel = (data: any[], start: string, end: string) => {
+  const handleExportEscorihuelaExcel = (data: any[], month: string) => {
     const dataToExport = data.map(day => ({
       'Fecha': day.date,
-      'Día': day.displayDate,
       'Posiciones': day.positions,
       'Estado': day.hasData ? 'Registrado' : 'Sin datos'
     }));
@@ -794,7 +791,7 @@ export default function App() {
     const ws = XLSX.utils.json_to_sheet(dataToExport);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Reporte Escorihuela");
-    XLSX.writeFile(wb, `Reporte_Escorihuela_${start}_al_${end}.xlsx`);
+    XLSX.writeFile(wb, `Reporte_Escorihuela_${month}.xlsx`);
   };
 
   const handleLaRuralSubmit = async (e: React.FormEvent) => {
@@ -861,17 +858,16 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const handleSaveLaRuralReport = async (weekData: any[], start: string, end: string, total: number, avg: number) => {
+  const handleSaveLaRuralReport = async (monthData: any[], month: string, total: number, avg: number) => {
     try {
       await addDoc(collection(db, 'la_rural_reports'), {
-        week_start: start,
-        week_end: end,
+        month: month,
         total_positions: total,
         avg_positions: avg,
-        data_json: weekData,
+        data_json: monthData,
         created_at: serverTimestamp()
       });
-      setNotification({ message: 'Reporte semanal de La Rural (Rutini Wines) guardado con éxito y almacenado en el historial.', type: 'success' });
+      setNotification({ message: 'Reporte mensual de La Rural (Rutini Wines) guardado con éxito y almacenado en el historial.', type: 'success' });
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, 'la_rural_reports');
     }
@@ -892,19 +888,20 @@ export default function App() {
     });
   };
 
-  // Helper for weekly data (La Rural - Rutini Wines)
-  const currentLaRuralWeekData = useMemo(() => {
-    const baseDate = parseISO(laRuralReportDate);
-    const monday = startOfWeek(baseDate, { weekStartsOn: 1 });
-    const sunday = endOfWeek(baseDate, { weekStartsOn: 1 });
-    const days = eachDayOfInterval({ start: monday, end: sunday });
+  // Helper for monthly data (La Rural - Rutini Wines)
+  const laRuralMonthlyData = useMemo(() => {
+    if (!laRuralReportMonth) return { data: [], total: 0, avg: 0, month: '' };
+    const [year, month] = laRuralReportMonth.split('-').map(Number);
+    const start = startOfMonth(new Date(year, month - 1));
+    const end = endOfMonth(start);
+    const days = eachDayOfInterval({ start, end });
 
     const data = days.map(day => {
       const dateStr = format(day, 'yyyy-MM-dd');
       const record = laRuralRecords.find(r => r.date === dateStr);
       return {
         date: dateStr,
-        displayDate: format(day, 'EEEE dd', { locale: es }),
+        displayDate: format(day, 'dd/MM'),
         positions: record ? record.positions : 0,
         hasData: !!record
       };
@@ -913,13 +910,12 @@ export default function App() {
     const total = data.reduce((acc, curr) => acc + curr.positions, 0);
     const avg = data.filter(d => d.hasData).length > 0 ? total / data.filter(d => d.hasData).length : 0;
 
-    return { data, total, avg, start: format(monday, 'yyyy-MM-dd'), end: format(sunday, 'yyyy-MM-dd') };
-  }, [laRuralRecords, laRuralReportDate]);
+    return { data, total, avg, month: laRuralReportMonth };
+  }, [laRuralRecords, laRuralReportMonth]);
 
-  const handleExportLaRuralExcel = (data: any[], start: string, end: string) => {
+  const handleExportLaRuralExcel = (data: any[], month: string) => {
     const dataToExport = data.map(day => ({
       'Fecha': day.date,
-      'Día': day.displayDate,
       'Posiciones': day.positions,
       'Estado': day.hasData ? 'Registrado' : 'Sin datos'
     }));
@@ -927,7 +923,7 @@ export default function App() {
     const ws = XLSX.utils.json_to_sheet(dataToExport);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Reporte La Rural");
-    XLSX.writeFile(wb, `Reporte_La_Rural_${start}_al_${end}.xlsx`);
+    XLSX.writeFile(wb, `Reporte_La_Rural_${month}.xlsx`);
   };
 
   // Helper for weekly data (Bodegas Bianchi)
@@ -2101,21 +2097,21 @@ export default function App() {
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div>
                 <h2 className="text-3xl font-bold text-slate-200">Escorihuela Gascón</h2>
-                <p className="text-slate-400">Control semanal de posiciones de pallets (7 días)</p>
+                <p className="text-slate-400">Control mensual de posiciones de pallets</p>
               </div>
               <div className="flex flex-wrap items-center gap-4">
                 <div className="bg-slate-900 p-2 rounded-2xl border border-slate-800 shadow-xl flex items-center gap-3">
-                  <span className="text-[10px] uppercase tracking-wider text-slate-500 font-bold ml-2">Ver Semana:</span>
+                  <span className="text-[10px] uppercase tracking-wider text-slate-500 font-bold ml-2">Ver Mes:</span>
                   <input 
-                    type="date" 
-                    value={escorihuelaReportDate}
-                    onChange={(e) => setEscorihuelaReportDate(e.target.value)}
+                    type="month" 
+                    value={escorihuelaReportMonth}
+                    onChange={(e) => setEscorihuelaReportMonth(e.target.value)}
                     className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-sm text-slate-200 outline-none focus:ring-2 focus:ring-emerald-500"
                   />
                 </div>
                 <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800 shadow-xl">
-                  <span className="text-xs uppercase tracking-wider text-slate-500 font-semibold block">Promedio Semanal</span>
-                  <span className="text-xl font-mono font-bold text-emerald-500">{currentEscorihuelaWeekData.avg.toFixed(1)} pos</span>
+                  <span className="text-xs uppercase tracking-wider text-slate-500 font-semibold block">Promedio Mensual</span>
+                  <span className="text-xl font-mono font-bold text-emerald-500">{escorihuelaMonthlyData.avg.toFixed(1)} pos</span>
                 </div>
               </div>
             </div>
@@ -2182,32 +2178,20 @@ export default function App() {
                 <section className="bg-slate-900 rounded-3xl p-6 shadow-xl border border-slate-800">
                   <div className="flex items-center justify-between mb-8">
                     <div>
-                      <h2 className="text-xl font-bold text-slate-200">Reporte Semanal Escorihuela Gascón</h2>
-                      <p className="text-sm text-slate-500">Semana del {format(parseISO(currentEscorihuelaWeekData.start), 'dd/MM')} al {format(parseISO(currentEscorihuelaWeekData.end), 'dd/MM')}</p>
+                      <h2 className="text-xl font-bold text-slate-200">Reporte Mensual Escorihuela Gascón</h2>
+                      <p className="text-sm text-slate-500">Mes de {escorihuelaMonthlyData.month ? format(parseISO(`${escorihuelaMonthlyData.month}-01`), 'MMMM yyyy', { locale: es }) : ''}</p>
                     </div>
                     <button 
-                      onClick={() => handleExportEscorihuelaExcel(currentEscorihuelaWeekData.data, currentEscorihuelaWeekData.start, currentEscorihuelaWeekData.end)}
+                      onClick={() => handleExportEscorihuelaExcel(escorihuelaMonthlyData.data, escorihuelaMonthlyData.month)}
                       className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-bold rounded-xl transition-all flex items-center gap-2"
                     >
                       <Download size={16} /> Excel
                     </button>
                   </div>
 
-                  <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-4 mb-8">
-                    {currentEscorihuelaWeekData.data.map((day, idx) => (
-                      <div key={idx} className={cn(
-                        "p-4 rounded-2xl border transition-all",
-                        day.hasData ? "bg-slate-950 border-emerald-500/30" : "bg-slate-950/50 border-slate-800 opacity-50"
-                      )}>
-                        <p className="text-[10px] uppercase tracking-wider text-slate-500 font-bold mb-1">{day.displayDate}</p>
-                        <p className="text-lg font-mono font-bold text-slate-200">{day.positions} <span className="text-[10px] text-slate-500">pos</span></p>
-                      </div>
-                    ))}
-                  </div>
-
                   <div className="h-[250px] w-full mb-8">
                     <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={currentEscorihuelaWeekData.data}>
+                      <LineChart data={escorihuelaMonthlyData.data}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
                         <XAxis dataKey="displayDate" stroke="#64748b" fontSize={10} tickLine={false} axisLine={false} />
                         <YAxis stroke="#64748b" fontSize={10} tickLine={false} axisLine={false} />
@@ -2217,32 +2201,39 @@ export default function App() {
                     </ResponsiveContainer>
                   </div>
 
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
+                    <div className="p-4 bg-slate-950 border border-slate-800 rounded-2xl">
+                      <p className="text-[10px] uppercase tracking-wider text-slate-500 font-bold mb-1">Días Registrados</p>
+                      <p className="text-xl font-mono font-bold text-slate-200">{escorihuelaMonthlyData.data.filter(d => d.hasData).length}</p>
+                    </div>
+                  </div>
+
                   <button 
-                    onClick={() => handleSaveEscorihuelaReport(currentEscorihuelaWeekData.data, currentEscorihuelaWeekData.start, currentEscorihuelaWeekData.end, currentEscorihuelaWeekData.total, currentEscorihuelaWeekData.avg)}
+                    onClick={() => handleSaveEscorihuelaReport(escorihuelaMonthlyData.data, escorihuelaMonthlyData.month, escorihuelaMonthlyData.total, escorihuelaMonthlyData.avg)}
                     className="w-full py-3 bg-slate-100 hover:bg-white text-slate-950 font-bold rounded-xl transition-all flex items-center justify-center gap-2"
                   >
                     <Save size={18} />
-                    Guardar Reporte Semanal
+                    Guardar Reporte Mensual
                   </button>
                 </section>
 
                 <section className="bg-slate-900 rounded-3xl p-6 shadow-xl border border-slate-800">
-                  <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-500 mb-6">Historial Semanal Escorihuela Gascón</h2>
+                  <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-500 mb-6 font-bold">Historial Mensual Escorihuela Gascón</h2>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     {escorihuelaReports.map((report) => (
                       <div key={report.id} className="bg-slate-950 p-4 rounded-2xl border border-slate-800 group hover:border-emerald-500/30 transition-all">
                         <div className="flex justify-between items-start mb-2">
-                          <p className="text-sm font-bold text-slate-200">{format(parseISO(report.week_start), 'dd/MM')} - {format(parseISO(report.week_end), 'dd/MM')}</p>
+                          <p className="text-sm font-bold text-slate-200">{report.month ? format(parseISO(`${report.month}-01`), 'MMMM yyyy', { locale: es }) : ''}</p>
                           <button onClick={() => handleDeleteEscorihuelaReport(report.id)} className="text-slate-600 hover:text-red-500 opacity-0 group-hover:opacity-100"><Trash2 size={14} /></button>
                         </div>
                         <div className="flex gap-4">
                           <div>
-                            <p className="text-[10px] text-slate-500 uppercase">Promedio</p>
-                            <p className="text-sm font-mono text-emerald-500">{report.avg_positions.toFixed(1)}</p>
+                            <p className="text-[10px] text-slate-500 uppercase font-bold">Promedio</p>
+                            <p className="text-sm font-mono text-emerald-500 font-bold">{report.avg_positions.toFixed(1)}</p>
                           </div>
                           <div>
-                            <p className="text-[10px] text-slate-500 uppercase">Total</p>
-                            <p className="text-sm font-mono text-slate-300">{report.total_positions}</p>
+                            <p className="text-[10px] text-slate-500 uppercase font-bold">Total</p>
+                            <p className="text-sm font-mono text-slate-300 font-bold">{report.total_positions}</p>
                           </div>
                         </div>
                       </div>
@@ -2257,21 +2248,21 @@ export default function App() {
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div>
                 <h2 className="text-3xl font-bold text-slate-200">La Rural (Rutini Wines)</h2>
-                <p className="text-slate-400">Control semanal de posiciones de pallets (7 días)</p>
+                <p className="text-slate-400">Control mensual de posiciones de pallets</p>
               </div>
               <div className="flex flex-wrap items-center gap-4">
                 <div className="bg-slate-900 p-2 rounded-2xl border border-slate-800 shadow-xl flex items-center gap-3">
-                  <span className="text-[10px] uppercase tracking-wider text-slate-500 font-bold ml-2">Ver Semana:</span>
+                  <span className="text-[10px] uppercase tracking-wider text-slate-500 font-bold ml-2">Ver Mes:</span>
                   <input 
-                    type="date" 
-                    value={laRuralReportDate}
-                    onChange={(e) => setLaRuralReportDate(e.target.value)}
+                    type="month" 
+                    value={laRuralReportMonth}
+                    onChange={(e) => setLaRuralReportMonth(e.target.value)}
                     className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-sm text-slate-200 outline-none focus:ring-2 focus:ring-emerald-500"
                   />
                 </div>
                 <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800 shadow-xl">
-                  <span className="text-xs uppercase tracking-wider text-slate-500 font-semibold block">Promedio Semanal</span>
-                  <span className="text-xl font-mono font-bold text-emerald-500">{currentLaRuralWeekData.avg.toFixed(1)} pos</span>
+                  <span className="text-xs uppercase tracking-wider text-slate-500 font-semibold block">Promedio Mensual</span>
+                  <span className="text-xl font-mono font-bold text-emerald-500">{laRuralMonthlyData.avg.toFixed(1)} pos</span>
                 </div>
               </div>
             </div>
@@ -2338,32 +2329,20 @@ export default function App() {
                 <section className="bg-slate-900 rounded-3xl p-6 shadow-xl border border-slate-800">
                   <div className="flex items-center justify-between mb-8">
                     <div>
-                      <h2 className="text-xl font-bold text-slate-200">Reporte Semanal La Rural (Rutini Wines)</h2>
-                      <p className="text-sm text-slate-500">Semana del {format(parseISO(currentLaRuralWeekData.start), 'dd/MM')} al {format(parseISO(currentLaRuralWeekData.end), 'dd/MM')}</p>
+                      <h2 className="text-xl font-bold text-slate-200">Reporte Mensual La Rural (Rutini Wines)</h2>
+                      <p className="text-sm text-slate-500">Mes de {laRuralMonthlyData.month ? format(parseISO(`${laRuralMonthlyData.month}-01`), 'MMMM yyyy', { locale: es }) : ''}</p>
                     </div>
                     <button 
-                      onClick={() => handleExportLaRuralExcel(currentLaRuralWeekData.data, currentLaRuralWeekData.start, currentLaRuralWeekData.end)}
+                      onClick={() => handleExportLaRuralExcel(laRuralMonthlyData.data, laRuralMonthlyData.month)}
                       className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-bold rounded-xl transition-all flex items-center gap-2"
                     >
                       <Download size={16} /> Excel
                     </button>
                   </div>
 
-                  <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-4 mb-8">
-                    {currentLaRuralWeekData.data.map((day, idx) => (
-                      <div key={idx} className={cn(
-                        "p-4 rounded-2xl border transition-all",
-                        day.hasData ? "bg-slate-950 border-emerald-500/30" : "bg-slate-950/50 border-slate-800 opacity-50"
-                      )}>
-                        <p className="text-[10px] uppercase tracking-wider text-slate-500 font-bold mb-1">{day.displayDate}</p>
-                        <p className="text-lg font-mono font-bold text-slate-200">{day.positions} <span className="text-[10px] text-slate-500">pos</span></p>
-                      </div>
-                    ))}
-                  </div>
-
                   <div className="h-[250px] w-full mb-8">
                     <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={currentLaRuralWeekData.data}>
+                      <LineChart data={laRuralMonthlyData.data}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
                         <XAxis dataKey="displayDate" stroke="#64748b" fontSize={10} tickLine={false} axisLine={false} />
                         <YAxis stroke="#64748b" fontSize={10} tickLine={false} axisLine={false} />
@@ -2373,32 +2352,39 @@ export default function App() {
                     </ResponsiveContainer>
                   </div>
 
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
+                    <div className="p-4 bg-slate-950 border border-slate-800 rounded-2xl">
+                      <p className="text-[10px] uppercase tracking-wider text-slate-500 font-bold mb-1">Días Registrados</p>
+                      <p className="text-xl font-mono font-bold text-slate-200">{laRuralMonthlyData.data.filter(d => d.hasData).length}</p>
+                    </div>
+                  </div>
+
                   <button 
-                    onClick={() => handleSaveLaRuralReport(currentLaRuralWeekData.data, currentLaRuralWeekData.start, currentLaRuralWeekData.end, currentLaRuralWeekData.total, currentLaRuralWeekData.avg)}
+                    onClick={() => handleSaveLaRuralReport(laRuralMonthlyData.data, laRuralMonthlyData.month, laRuralMonthlyData.total, laRuralMonthlyData.avg)}
                     className="w-full py-3 bg-slate-100 hover:bg-white text-slate-950 font-bold rounded-xl transition-all flex items-center justify-center gap-2"
                   >
                     <Save size={18} />
-                    Guardar Reporte Semanal
+                    Guardar Reporte Mensual
                   </button>
                 </section>
 
                 <section className="bg-slate-900 rounded-3xl p-6 shadow-xl border border-slate-800">
-                  <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-500 mb-6">Historial Semanal La Rural (Rutini Wines)</h2>
+                  <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-500 mb-6 font-bold">Historial Mensual La Rural (Rutini Wines)</h2>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     {laRuralReports.map((report) => (
                       <div key={report.id} className="bg-slate-950 p-4 rounded-2xl border border-slate-800 group hover:border-emerald-500/30 transition-all">
                         <div className="flex justify-between items-start mb-2">
-                          <p className="text-sm font-bold text-slate-200">{format(parseISO(report.week_start), 'dd/MM')} - {format(parseISO(report.week_end), 'dd/MM')}</p>
+                          <p className="text-sm font-bold text-slate-200">{report.month ? format(parseISO(`${report.month}-01`), 'MMMM yyyy', { locale: es }) : ''}</p>
                           <button onClick={() => handleDeleteLaRuralReport(report.id)} className="text-slate-600 hover:text-red-500 opacity-0 group-hover:opacity-100"><Trash2 size={14} /></button>
                         </div>
                         <div className="flex gap-4">
                           <div>
-                            <p className="text-[10px] text-slate-500 uppercase">Promedio</p>
-                            <p className="text-sm font-mono text-emerald-500">{report.avg_positions.toFixed(1)}</p>
+                            <p className="text-[10px] text-slate-500 uppercase font-bold">Promedio</p>
+                            <p className="text-sm font-mono text-emerald-500 font-bold">{report.avg_positions.toFixed(1)}</p>
                           </div>
                           <div>
-                            <p className="text-[10px] text-slate-500 uppercase">Total</p>
-                            <p className="text-sm font-mono text-slate-300">{report.total_positions}</p>
+                            <p className="text-[10px] text-slate-500 uppercase font-bold">Total</p>
+                            <p className="text-sm font-mono text-slate-300 font-bold">{report.total_positions}</p>
                           </div>
                         </div>
                       </div>
