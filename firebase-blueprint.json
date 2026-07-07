@@ -121,6 +121,19 @@
         "created_at": { "type": "string", "format": "date-time" }
       },
       "required": ["month", "total_positions"]
+    },
+    "AbastecimientoRecord": {
+      "title": "AbastecimientoRecord",
+      "description": "Record of received supply/replenishment of pallets from a client",
+      "type": "object",
+      "properties": {
+        "date": { "type": "string", "description": "Date of the supply (YYYY-MM-DD)" },
+        "client": { "type": "string", "description": "Name of the client" },
+        "remito": { "type": "string", "description": "Delivery note/Invoice number (Número de remito)" },
+        "pallets": { "type": "number", "description": "Quantity of pallets received" },
+        "created_at": { "type": "string", "format": "date-time", "description": "Timestamp when registered" }
+      },
+      "required": ["date", "client", "remito", "pallets"]
     }
   },
   "firestore": {
@@ -133,6 +146,7 @@
     "/escorihuela": { "schema": "EscorihuelaRecord", "description": "Collection of daily Escorihuela Gascón records" },
     "/escorihuela_reports": { "schema": "EscorihuelaReport", "description": "Collection of monthly Escorihuela Gascón reports" },
     "/la_rural": { "schema": "LaRuralRecord", "description": "Collection of daily La Rural (Rutini Wines) records" },
-    "/la_rural_reports": { "schema": "LaRuralReport", "description": "Collection of monthly La Rural (Rutini Wines) reports" }
+    "/la_rural_reports": { "schema": "LaRuralReport", "description": "Collection of monthly La Rural (Rutini Wines) reports" },
+    "/abastecimientos": { "schema": "AbastecimientoRecord", "description": "Collection of received pallet supplies" }
   }
 }

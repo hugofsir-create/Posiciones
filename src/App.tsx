@@ -165,6 +165,15 @@ interface LaRuralReport {
   uid?: string;
 }
 
+interface AbastecimientoRecord {
+  id: string;
+  date: string;
+  client: string;
+  remito: string;
+  pallets: number;
+  created_at: any;
+}
+
 interface ErrorBoundaryProps {
   children: React.ReactNode;
 }
@@ -236,7 +245,8 @@ export default function App() {
   const [escorihuelaReports, setEscorihuelaReports] = useState<EscorihuelaReport[]>([]);
   const [laRuralRecords, setLaRuralRecords] = useState<LaRuralRecord[]>([]);
   const [laRuralReports, setLaRuralReports] = useState<LaRuralReport[]>([]);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'history' | 'bianchi' | 'cepas' | 'escorihuela' | 'la_rural' | 'backup'>('dashboard');
+  const [abastecimientos, setAbastecimientos] = useState<AbastecimientoRecord[]>([]);
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'history' | 'bianchi' | 'cepas' | 'escorihuela' | 'la_rural' | 'abastecimientos' | 'backup'>('dashboard');
   const [selectedReport, setSelectedReport] = useState<SavedReport | null>(null);
   const [selectedPalletReport, setSelectedPalletReport] = useState<PalletReport | null>(null);
   const [selectedCepasReport, setSelectedCepasReport] = useState<CepasReport | null>(null);
@@ -255,6 +265,16 @@ export default function App() {
   const [newEscorihuelaPositions, setNewEscorihuelaPositions] = useState<string>('');
   const [newLaRuralDate, setNewLaRuralDate] = useState(format(startOfToday(), 'yyyy-MM-dd'));
   const [newLaRuralPositions, setNewLaRuralPositions] = useState<string>('');
+  
+  // Abastecimientos Form States
+  const [newAbastDate, setNewAbastDate] = useState(format(startOfToday(), 'yyyy-MM-dd'));
+  const [newAbastClient, setNewAbastClient] = useState('Raizen');
+  const [newAbastCustomClient, setNewAbastCustomClient] = useState('');
+  const [newAbastRemito, setNewAbastRemito] = useState('');
+  const [newAbastPallets, setNewAbastPallets] = useState('');
+  const [isEditingAbast, setIsEditingAbast] = useState(false);
+  const [editingAbastId, setEditingAbastId] = useState<string | null>(null);
+
   const [reportPeriod, setReportPeriod] = useState<'first' | 'second'>('first');
   const [reportMonth, setReportMonth] = useState(format(startOfToday(), 'yyyy-MM'));
   const [cepasReportMonth, setCepasReportMonth] = useState(format(startOfToday(), 'yyyy-MM'));
@@ -298,6 +318,7 @@ export default function App() {
     const qEscorihuelaReports = query(collection(db, 'escorihuela_reports'), orderBy('created_at', 'desc'));
     const qLaRural = query(collection(db, 'la_rural'), orderBy('date', 'desc'));
     const qLaRuralReports = query(collection(db, 'la_rural_reports'), orderBy('created_at', 'desc'));
+    const qAbast = query(collection(db, 'abastecimientos'), orderBy('date', 'desc'));
 
     const unsubRecords = onSnapshot(qRecords, (snap) => {
       setRecords(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as StockRecord)));
@@ -328,6 +349,9 @@ export default function App() {
     });
     const unsubLaRuralReports = onSnapshot(qLaRuralReports, (snap) => {
       setLaRuralReports(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as LaRuralReport)));
+    });
+    const unsubAbast = onSnapshot(qAbast, (snap) => {
+      setAbastecimientos(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as AbastecimientoRecord)));
       setLoading(false);
     });
 
@@ -342,6 +366,7 @@ export default function App() {
       unsubEscorihuelaReports();
       unsubLaRural();
       unsubLaRuralReports();
+      unsubAbast();
     };
   }, []);
 
@@ -974,6 +999,104 @@ export default function App() {
     return { data, total, avg, month: cepasReportMonth };
   }, [cepasRecords, cepasReportMonth]);
 
+  const handleAbastSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newAbastDate || !newAbastClient || !newAbastRemito || !newAbastPallets) {
+      setNotification({ message: 'Todos los campos son requeridos', type: 'error' });
+      return;
+    }
+
+    const clientName = newAbastClient === 'Otro' ? newAbastCustomClient : newAbastClient;
+    if (!clientName.trim()) {
+      setNotification({ message: 'Debe ingresar el nombre del cliente', type: 'error' });
+      return;
+    }
+
+    const palletsNum = parseInt(newAbastPallets);
+    if (isNaN(palletsNum) || palletsNum < 0) {
+      setNotification({ message: 'Ingrese una cantidad válida de pallets', type: 'error' });
+      return;
+    }
+
+    try {
+      setLoading(true);
+      if (isEditingAbast && editingAbastId) {
+        await updateDoc(doc(db, 'abastecimientos', editingAbastId), {
+          date: newAbastDate,
+          client: clientName,
+          remito: newAbastRemito,
+          pallets: palletsNum
+        });
+        setNotification({ message: 'Abastecimiento actualizado con éxito', type: 'success' });
+      } else {
+        await addDoc(collection(db, 'abastecimientos'), {
+          date: newAbastDate,
+          client: clientName,
+          remito: newAbastRemito,
+          pallets: palletsNum,
+          created_at: serverTimestamp()
+        });
+        setNotification({ message: 'Abastecimiento registrado con éxito', type: 'success' });
+      }
+
+      // Reset form
+      setNewAbastRemito('');
+      setNewAbastPallets('');
+      setNewAbastCustomClient('');
+      setIsEditingAbast(false);
+      setEditingAbastId(null);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, 'abastecimientos');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAbastEdit = (record: AbastecimientoRecord) => {
+    setNewAbastDate(record.date);
+    const knownClients = ['Raizen', 'Bodegas Bianchi', 'Cepas', 'Escorihuela Gascón', 'La Rural (Rutini Wines)'];
+    if (knownClients.includes(record.client)) {
+      setNewAbastClient(record.client);
+      setNewAbastCustomClient('');
+    } else {
+      setNewAbastClient('Otro');
+      setNewAbastCustomClient(record.client);
+    }
+    setNewAbastRemito(record.remito);
+    setNewAbastPallets(record.pallets.toString());
+    setIsEditingAbast(true);
+    setEditingAbastId(record.id);
+  };
+
+  const handleAbastDelete = async (id: string) => {
+    setConfirmModal({
+      title: '¿Eliminar abastecimiento?',
+      message: '¿Estás seguro de eliminar este registro de abastecimiento?',
+      onConfirm: async () => {
+        try {
+          await deleteDoc(doc(db, 'abastecimientos', id));
+          setNotification({ message: 'Registro de abastecimiento eliminado', type: 'success' });
+        } catch (error) {
+          handleFirestoreError(error, OperationType.DELETE, 'abastecimientos');
+        }
+      }
+    });
+  };
+
+  const handleExportAbastExcel = (data: AbastecimientoRecord[]) => {
+    const dataToExport = data.map(record => ({
+      'Fecha': record.date,
+      'Cliente': record.client,
+      'Número de Remito': record.remito,
+      'Cantidad Pallets': record.pallets
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(dataToExport);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Abastecimientos");
+    XLSX.writeFile(wb, `Abastecimientos_Recibidos_${format(new Date(), 'yyyy-MM-dd')}.xlsx`);
+  };
+
   const handleExportPalletExcel = (data: any[], start: string, end: string) => {
     const dataToExport = data.map(day => ({
       'Fecha': day.date,
@@ -1108,6 +1231,7 @@ export default function App() {
       escorihuelaReports,
       laRuralRecords,
       laRuralReports,
+      abastecimientos,
       version: '1.0',
       exportedAt: new Date().toISOString()
     };
@@ -1136,7 +1260,7 @@ export default function App() {
         const content = e.target?.result as string;
         const data = JSON.parse(content);
         
-        if (!data.records && !data.palletRecords && !data.cepasRecords && !data.escorihuelaRecords && !data.laRuralRecords) {
+        if (!data.records && !data.palletRecords && !data.cepasRecords && !data.escorihuelaRecords && !data.laRuralRecords && !data.abastecimientos) {
           throw new Error('Formato de backup inválido: No se encontraron registros');
         }
 
@@ -1224,6 +1348,10 @@ export default function App() {
       }
       if (importData.laRuralReports) {
         await syncEntity('la_rural_reports', importData.laRuralReports, 'Reportes La Rural (Rutini Wines)');
+        setProgress(95);
+      }
+      if (importData.abastecimientos) {
+        await syncEntity('abastecimientos', importData.abastecimientos, 'Abastecimientos Recibidos');
         setProgress(98);
       }
       
@@ -1245,7 +1373,7 @@ export default function App() {
     setLoading(true);
     setProgress(50);
     try {
-      const collectionsToClear = ['records', 'reports', 'pallets', 'pallet_reports', 'cepas', 'cepas_reports', 'escorihuela', 'escorihuela_reports', 'la_rural', 'la_rural_reports'];
+      const collectionsToClear = ['records', 'reports', 'pallets', 'pallet_reports', 'cepas', 'cepas_reports', 'escorihuela', 'escorihuela_reports', 'la_rural', 'la_rural_reports', 'abastecimientos'];
       
       for (const collName of collectionsToClear) {
         const q = query(collection(db, collName));
@@ -1266,6 +1394,7 @@ export default function App() {
       localStorage.removeItem('escorihuela_reports_backup');
       localStorage.removeItem('la_rural_records_backup');
       localStorage.removeItem('la_rural_reports_backup');
+      localStorage.removeItem('abastecimientos_records_backup');
       
       setNotification({ message: 'Todos los datos han sido eliminados correctamente.', type: 'success' });
     } catch (err) {
@@ -1426,6 +1555,16 @@ export default function App() {
             >
               <Warehouse size={18} />
               La Rural (Rutini Wines)
+            </button>
+            <button 
+              onClick={() => setActiveTab('abastecimientos')}
+              className={cn(
+                "flex items-center gap-2 px-4 md:px-5 py-2 rounded-xl text-sm font-semibold transition-all",
+                activeTab === 'abastecimientos' ? "bg-emerald-600 text-white shadow-lg shadow-emerald-900/20" : "text-slate-400 hover:text-slate-200"
+              )}
+            >
+              <Truck size={18} />
+              Abastecimientos
             </button>
             <button 
               onClick={() => setActiveTab('backup')}
@@ -2394,6 +2533,196 @@ export default function App() {
               </div>
             </div>
           </div>
+        ) : activeTab === 'abastecimientos' ? (
+          <div className="space-y-8">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <h2 className="text-3xl font-bold text-slate-200">Abastecimientos Recibidos</h2>
+                <p className="text-slate-400">Control de pallets recibidos por cada cliente</p>
+              </div>
+              <button 
+                onClick={() => handleExportAbastExcel(abastecimientos)}
+                className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-slate-200 text-sm font-bold rounded-2xl transition-all border border-slate-800 flex items-center gap-2 shadow-xl"
+              >
+                <Download size={16} /> Exportar Excel
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              {/* Form Section */}
+              <div className="lg:col-span-1 space-y-6">
+                <section className="bg-slate-900 rounded-3xl p-6 shadow-xl border border-slate-800">
+                  <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-500 mb-6 flex items-center gap-2 font-bold">
+                    {isEditingAbast ? <Pencil size={16} className="text-amber-500" /> : <Plus size={16} />} 
+                    {isEditingAbast ? 'Editar Abastecimiento' : 'Nuevo Abastecimiento'}
+                  </h2>
+                  <form onSubmit={handleAbastSubmit} className="space-y-4">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-400 mb-1 ml-1 font-bold">Fecha de Recepción</label>
+                      <input 
+                        type="date" 
+                        value={newAbastDate}
+                        onChange={(e) => setNewAbastDate(e.target.value)}
+                        className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none text-slate-200 text-sm"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-slate-400 mb-1 ml-1 font-bold">Cliente</label>
+                      <select 
+                        value={newAbastClient}
+                        onChange={(e) => setNewAbastClient(e.target.value)}
+                        className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none text-slate-200 text-sm"
+                        required
+                      >
+                        <option value="Raizen">Raizen</option>
+                        <option value="Bodegas Bianchi">Bodegas Bianchi</option>
+                        <option value="Cepas">Cepas</option>
+                        <option value="Escorihuela Gascón">Escorihuela Gascón</option>
+                        <option value="La Rural (Rutini Wines)">La Rural (Rutini Wines)</option>
+                        <option value="Otro">Otro cliente (Especificar)</option>
+                      </select>
+                    </div>
+
+                    {newAbastClient === 'Otro' && (
+                      <motion.div
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        exit={{ opacity: 0, height: 0 }}
+                      >
+                        <label className="block text-xs font-medium text-slate-400 mb-1 ml-1 font-bold">Nombre del Cliente</label>
+                        <input 
+                          type="text" 
+                          placeholder="Nombre del cliente"
+                          value={newAbastCustomClient}
+                          onChange={(e) => setNewAbastCustomClient(e.target.value)}
+                          className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none text-slate-200 text-sm"
+                          required={newAbastClient === 'Otro'}
+                        />
+                      </motion.div>
+                    )}
+
+                    <div>
+                      <label className="block text-xs font-medium text-slate-400 mb-1 ml-1 font-bold">Número de Remito</label>
+                      <input 
+                        type="text" 
+                        placeholder="Ej: 0001-00042531"
+                        value={newAbastRemito}
+                        onChange={(e) => setNewAbastRemito(e.target.value)}
+                        className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none font-mono text-slate-200 text-sm"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-slate-400 mb-1 ml-1 font-bold">Cantidad de Pallets Recibidos</label>
+                      <input 
+                        type="number" 
+                        placeholder="0"
+                        value={newAbastPallets}
+                        onChange={(e) => setNewAbastPallets(e.target.value)}
+                        className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none font-mono text-slate-200 text-sm"
+                        required
+                      />
+                    </div>
+
+                    <div className="flex gap-3 pt-2">
+                      {isEditingAbast && (
+                        <button 
+                          type="button"
+                          onClick={() => {
+                            setIsEditingAbast(false);
+                            setEditingAbastId(null);
+                            setNewAbastRemito('');
+                            setNewAbastPallets('');
+                            setNewAbastCustomClient('');
+                          }}
+                          className="w-1/2 py-3 bg-slate-800 hover:bg-slate-750 text-slate-200 font-bold rounded-xl transition-all flex items-center justify-center gap-2"
+                        >
+                          Cancelar
+                        </button>
+                      )}
+                      <button 
+                        type="submit"
+                        className={cn(
+                          "py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl shadow-lg transition-all flex items-center justify-center gap-2",
+                          isEditingAbast ? "w-1/2" : "w-full"
+                        )}
+                      >
+                        <Save size={18} />
+                        {isEditingAbast ? 'Actualizar' : 'Guardar'}
+                      </button>
+                    </div>
+                  </form>
+                </section>
+              </div>
+
+              {/* List Section */}
+              <div className="lg:col-span-2 space-y-6">
+                <section className="bg-slate-900 rounded-3xl p-6 shadow-xl border border-slate-800">
+                  <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-500 mb-6 font-bold">Historial de Abastecimientos Recibidos</h2>
+                  
+                  {abastecimientos.length === 0 ? (
+                    <div className="text-center py-20 bg-slate-950 rounded-2xl border border-slate-800/50">
+                      <Truck size={48} className="mx-auto text-slate-800 mb-4" />
+                      <p className="text-slate-500 italic">No hay abastecimientos registrados todavía.</p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto rounded-2xl border border-slate-800 bg-slate-950">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="border-b border-slate-800 bg-slate-900/50 text-xs font-bold uppercase tracking-wider text-slate-400">
+                            <th className="p-4">Fecha</th>
+                            <th className="p-4">Cliente</th>
+                            <th className="p-4">Nº Remito</th>
+                            <th className="p-4 text-right">Pallets</th>
+                            <th className="p-4 text-center">Acciones</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800/50 text-sm">
+                          {abastecimientos.map((record) => (
+                            <tr key={record.id} className="hover:bg-slate-900/30 group transition-all">
+                              <td className="p-4 font-medium text-slate-300">
+                                {format(parseISO(record.date), 'dd/MM/yyyy', { locale: es })}
+                              </td>
+                              <td className="p-4 font-semibold text-emerald-500">
+                                {record.client}
+                              </td>
+                              <td className="p-4 font-mono text-slate-400">
+                                {record.remito}
+                              </td>
+                              <td className="p-4 text-right font-mono font-bold text-slate-200">
+                                {record.pallets}
+                              </td>
+                              <td className="p-4">
+                                <div className="flex justify-center gap-2 opacity-0 group-hover:opacity-100 transition-all">
+                                  <button 
+                                    onClick={() => handleAbastEdit(record)} 
+                                    className="p-1.5 bg-slate-900 text-slate-400 hover:text-amber-500 hover:bg-slate-800 rounded-lg transition-all"
+                                    title="Editar"
+                                  >
+                                    <Pencil size={15} />
+                                  </button>
+                                  <button 
+                                    onClick={() => handleAbastDelete(record.id)} 
+                                    className="p-1.5 bg-slate-900 text-slate-400 hover:text-red-500 hover:bg-slate-800 rounded-lg transition-all"
+                                    title="Eliminar"
+                                  >
+                                    <Trash2 size={15} />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </section>
+              </div>
+            </div>
+          </div>
         ) : activeTab === 'backup' ? (
           <div className="space-y-8">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -2495,6 +2824,10 @@ export default function App() {
                 <div>
                   <p className="text-slate-500 text-xs">Registros La Rural (Rutini Wines)</p>
                   <p className="text-xl font-mono font-bold text-slate-300">{laRuralRecords.length}</p>
+                </div>
+                <div>
+                  <p className="text-slate-500 text-xs">Registros Abastecimientos</p>
+                  <p className="text-xl font-mono font-bold text-slate-300">{abastecimientos.length}</p>
                 </div>
               </div>
             </div>
