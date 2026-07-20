@@ -21,7 +21,8 @@ import {
   Database,
   Upload,
   Truck,
-  Warehouse
+  Warehouse,
+  Filter
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -274,6 +275,11 @@ export default function App() {
   const [newAbastPallets, setNewAbastPallets] = useState('');
   const [isEditingAbast, setIsEditingAbast] = useState(false);
   const [editingAbastId, setEditingAbastId] = useState<string | null>(null);
+
+  // Abastecimientos Filter States
+  const [filterAbastClient, setFilterAbastClient] = useState<string>('');
+  const [filterAbastStartDate, setFilterAbastStartDate] = useState<string>('');
+  const [filterAbastEndDate, setFilterAbastEndDate] = useState<string>('');
 
   const [reportPeriod, setReportPeriod] = useState<'first' | 'second'>('first');
   const [reportMonth, setReportMonth] = useState(format(startOfToday(), 'yyyy-MM'));
@@ -998,6 +1004,35 @@ export default function App() {
 
     return { data, total, avg, month: cepasReportMonth };
   }, [cepasRecords, cepasReportMonth]);
+
+  const clientOptions = useMemo(() => {
+    const clientsSet = new Set<string>();
+    abastecimientos.forEach(record => {
+      if (record.client) clientsSet.add(record.client);
+    });
+    const standardClients = ['Raizen', 'Bodegas Bianchi', 'Cepas', 'Escorihuela Gascón', 'La Rural (Rutini Wines)'];
+    standardClients.forEach(c => clientsSet.add(c));
+    return Array.from(clientsSet).sort();
+  }, [abastecimientos]);
+
+  const filteredAbastecimientos = useMemo(() => {
+    return abastecimientos.filter(record => {
+      if (filterAbastClient && record.client !== filterAbastClient) {
+        return false;
+      }
+      if (filterAbastStartDate && record.date < filterAbastStartDate) {
+        return false;
+      }
+      if (filterAbastEndDate && record.date > filterAbastEndDate) {
+        return false;
+      }
+      return true;
+    });
+  }, [abastecimientos, filterAbastClient, filterAbastStartDate, filterAbastEndDate]);
+
+  const totalFilteredPallets = useMemo(() => {
+    return filteredAbastecimientos.reduce((sum, item) => sum + item.pallets, 0);
+  }, [filteredAbastecimientos]);
 
   const handleAbastSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -2541,10 +2576,10 @@ export default function App() {
                 <p className="text-slate-400">Control de pallets recibidos por cada cliente</p>
               </div>
               <button 
-                onClick={() => handleExportAbastExcel(abastecimientos)}
+                onClick={() => handleExportAbastExcel(filteredAbastecimientos)}
                 className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-slate-200 text-sm font-bold rounded-2xl transition-all border border-slate-800 flex items-center gap-2 shadow-xl"
               >
-                <Download size={16} /> Exportar Excel
+                <Download size={16} /> Exportar Excel (Filtrado)
               </button>
             </div>
 
@@ -2661,12 +2696,86 @@ export default function App() {
               {/* List Section */}
               <div className="lg:col-span-2 space-y-6">
                 <section className="bg-slate-900 rounded-3xl p-6 shadow-xl border border-slate-800">
-                  <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-500 mb-6 font-bold">Historial de Abastecimientos Recibidos</h2>
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+                    <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-500 font-bold">Historial de Abastecimientos Recibidos</h2>
+                    {abastecimientos.length > 0 && (
+                      <span className="text-xs font-mono px-3 py-1 bg-slate-950 border border-slate-800 rounded-full text-slate-400">
+                        Total Filtrado: <strong className="text-emerald-500">{totalFilteredPallets}</strong> pallets en <strong className="text-slate-300">{filteredAbastecimientos.length}</strong> entregas
+                      </span>
+                    )}
+                  </div>
+
+                  {abastecimientos.length > 0 && (
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 p-4 bg-slate-950/60 rounded-2xl border border-slate-800/80">
+                      <div>
+                        <label className="block text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1.5 ml-1">Filtrar por Cliente</label>
+                        <select
+                          value={filterAbastClient}
+                          onChange={(e) => setFilterAbastClient(e.target.value)}
+                          className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none text-slate-200 text-sm font-semibold"
+                        >
+                          <option value="">Todos los clientes</option>
+                           {clientOptions.map((c) => (
+                             <option key={c} value={c}>{c}</option>
+                           ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1.5 ml-1">Desde Fecha</label>
+                        <input
+                          type="date"
+                          value={filterAbastStartDate}
+                          onChange={(e) => setFilterAbastStartDate(e.target.value)}
+                          className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none text-slate-200 text-sm font-mono"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1.5 ml-1">Hasta Fecha</label>
+                        <input
+                          type="date"
+                          value={filterAbastEndDate}
+                          onChange={(e) => setFilterAbastEndDate(e.target.value)}
+                          className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none text-slate-200 text-sm font-mono"
+                        />
+                      </div>
+
+                      {(filterAbastClient || filterAbastStartDate || filterAbastEndDate) && (
+                        <div className="md:col-span-3 flex justify-end pt-1">
+                          <button
+                            onClick={() => {
+                              setFilterAbastClient('');
+                              setFilterAbastStartDate('');
+                              setFilterAbastEndDate('');
+                            }}
+                            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-lg transition-all"
+                          >
+                            Limpiar Filtros
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
                   
                   {abastecimientos.length === 0 ? (
                     <div className="text-center py-20 bg-slate-950 rounded-2xl border border-slate-800/50">
                       <Truck size={48} className="mx-auto text-slate-800 mb-4" />
                       <p className="text-slate-500 italic">No hay abastecimientos registrados todavía.</p>
+                    </div>
+                  ) : filteredAbastecimientos.length === 0 ? (
+                    <div className="text-center py-20 bg-slate-950 rounded-2xl border border-slate-800/50">
+                      <Filter size={48} className="mx-auto text-slate-800 mb-4 animate-pulse" />
+                      <p className="text-slate-400 font-semibold">No se encontraron abastecimientos con los filtros seleccionados.</p>
+                      <p className="text-slate-500 text-xs mt-1">Prueba cambiando el cliente o el rango de fechas.</p>
+                      <button
+                        onClick={() => {
+                          setFilterAbastClient('');
+                          setFilterAbastStartDate('');
+                          setFilterAbastEndDate('');
+                        }}
+                        className="mt-4 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-xl transition-all"
+                      >
+                        Restablecer Filtros
+                      </button>
                     </div>
                   ) : (
                     <div className="overflow-x-auto rounded-2xl border border-slate-800 bg-slate-950">
@@ -2681,7 +2790,7 @@ export default function App() {
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-800/50 text-sm">
-                          {abastecimientos.map((record) => (
+                          {filteredAbastecimientos.map((record) => (
                             <tr key={record.id} className="hover:bg-slate-900/30 group transition-all">
                               <td className="p-4 font-medium text-slate-300">
                                 {format(parseISO(record.date), 'dd/MM/yyyy', { locale: es })}
