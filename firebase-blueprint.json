@@ -124,13 +124,14 @@
     },
     "AbastecimientoRecord": {
       "title": "AbastecimientoRecord",
-      "description": "Record of received supply/replenishment of pallets from a client",
+      "description": "Record of received supply or release/return of pallets from/to a client",
       "type": "object",
       "properties": {
-        "date": { "type": "string", "description": "Date of the supply (YYYY-MM-DD)" },
+        "date": { "type": "string", "description": "Date of movement (YYYY-MM-DD)" },
         "client": { "type": "string", "description": "Name of the client" },
         "remito": { "type": "string", "description": "Delivery note/Invoice number (Número de remito)" },
-        "pallets": { "type": "number", "description": "Quantity of pallets received" },
+        "pallets": { "type": "number", "description": "Quantity of pallets" },
+        "type": { "type": "string", "enum": ["ingreso", "egreso"], "description": "Movement type: ingreso (entrada/recepción) or egreso (salida/devolución)" },
         "created_at": { "type": "string", "format": "date-time", "description": "Timestamp when registered" }
       },
       "required": ["date", "client", "remito", "pallets"]

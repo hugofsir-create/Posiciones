@@ -22,7 +22,11 @@ import {
   Upload,
   Truck,
   Warehouse,
-  Filter
+  Filter,
+  ArrowDownRight,
+  ArrowUpRight,
+  PlusCircle,
+  MinusCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -172,6 +176,7 @@ interface AbastecimientoRecord {
   client: string;
   remito: string;
   pallets: number;
+  type?: 'ingreso' | 'egreso';
   created_at: any;
 }
 
@@ -268,6 +273,7 @@ export default function App() {
   const [newLaRuralPositions, setNewLaRuralPositions] = useState<string>('');
   
   // Abastecimientos Form States
+  const [newAbastType, setNewAbastType] = useState<'ingreso' | 'egreso'>('ingreso');
   const [newAbastDate, setNewAbastDate] = useState(format(startOfToday(), 'yyyy-MM-dd'));
   const [newAbastClient, setNewAbastClient] = useState('Raizen');
   const [newAbastCustomClient, setNewAbastCustomClient] = useState('');
@@ -277,6 +283,7 @@ export default function App() {
   const [editingAbastId, setEditingAbastId] = useState<string | null>(null);
 
   // Abastecimientos Filter States
+  const [filterAbastType, setFilterAbastType] = useState<string>('');
   const [filterAbastClient, setFilterAbastClient] = useState<string>('');
   const [filterAbastStartDate, setFilterAbastStartDate] = useState<string>('');
   const [filterAbastEndDate, setFilterAbastEndDate] = useState<string>('');
@@ -1017,6 +1024,10 @@ export default function App() {
 
   const filteredAbastecimientos = useMemo(() => {
     return abastecimientos.filter(record => {
+      const recType = record.type || 'ingreso';
+      if (filterAbastType && recType !== filterAbastType) {
+        return false;
+      }
       if (filterAbastClient && record.client !== filterAbastClient) {
         return false;
       }
@@ -1028,10 +1039,24 @@ export default function App() {
       }
       return true;
     });
-  }, [abastecimientos, filterAbastClient, filterAbastStartDate, filterAbastEndDate]);
+  }, [abastecimientos, filterAbastType, filterAbastClient, filterAbastStartDate, filterAbastEndDate]);
 
-  const totalFilteredPallets = useMemo(() => {
-    return filteredAbastecimientos.reduce((sum, item) => sum + item.pallets, 0);
+  const abastStats = useMemo(() => {
+    let totalIngresos = 0;
+    let totalEgresos = 0;
+
+    filteredAbastecimientos.forEach(item => {
+      const type = item.type || 'ingreso';
+      if (type === 'egreso') {
+        totalEgresos += item.pallets;
+      } else {
+        totalIngresos += item.pallets;
+      }
+    });
+
+    const saldoNeto = totalIngresos - totalEgresos;
+
+    return { totalIngresos, totalEgresos, saldoNeto };
   }, [filteredAbastecimientos]);
 
   const handleAbastSubmit = async (e: React.FormEvent) => {
@@ -1048,8 +1073,8 @@ export default function App() {
     }
 
     const palletsNum = parseInt(newAbastPallets);
-    if (isNaN(palletsNum) || palletsNum < 0) {
-      setNotification({ message: 'Ingrese una cantidad válida de pallets', type: 'error' });
+    if (isNaN(palletsNum) || palletsNum <= 0) {
+      setNotification({ message: 'Ingrese una cantidad válida mayor a 0', type: 'error' });
       return;
     }
 
@@ -1060,24 +1085,27 @@ export default function App() {
           date: newAbastDate,
           client: clientName,
           remito: newAbastRemito,
-          pallets: palletsNum
+          pallets: palletsNum,
+          type: newAbastType
         });
-        setNotification({ message: 'Abastecimiento actualizado con éxito', type: 'success' });
+        setNotification({ message: 'Registro de abastecimiento actualizado con éxito', type: 'success' });
       } else {
         await addDoc(collection(db, 'abastecimientos'), {
           date: newAbastDate,
           client: clientName,
           remito: newAbastRemito,
           pallets: palletsNum,
+          type: newAbastType,
           created_at: serverTimestamp()
         });
-        setNotification({ message: 'Abastecimiento registrado con éxito', type: 'success' });
+        setNotification({ message: `${newAbastType === 'egreso' ? 'Salida / Devolución' : 'Ingreso / Entrada'} registrada con éxito`, type: 'success' });
       }
 
       // Reset form
       setNewAbastRemito('');
       setNewAbastPallets('');
       setNewAbastCustomClient('');
+      setNewAbastType('ingreso');
       setIsEditingAbast(false);
       setEditingAbastId(null);
     } catch (error) {
@@ -1088,6 +1116,7 @@ export default function App() {
   };
 
   const handleAbastEdit = (record: AbastecimientoRecord) => {
+    setNewAbastType(record.type || 'ingreso');
     setNewAbastDate(record.date);
     const knownClients = ['Raizen', 'Bodegas Bianchi', 'Cepas', 'Escorihuela Gascón', 'La Rural (Rutini Wines)'];
     if (knownClients.includes(record.client)) {
@@ -1105,7 +1134,7 @@ export default function App() {
 
   const handleAbastDelete = async (id: string) => {
     setConfirmModal({
-      title: '¿Eliminar abastecimiento?',
+      title: '¿Eliminar movimiento?',
       message: '¿Estás seguro de eliminar este registro de abastecimiento?',
       onConfirm: async () => {
         try {
@@ -1120,16 +1149,18 @@ export default function App() {
 
   const handleExportAbastExcel = (data: AbastecimientoRecord[]) => {
     const dataToExport = data.map(record => ({
+      'Tipo': (record.type || 'ingreso') === 'egreso' ? 'Salida / Devolución' : 'Ingreso / Entrada',
       'Fecha': record.date,
       'Cliente': record.client,
       'Número de Remito': record.remito,
-      'Cantidad Pallets': record.pallets
+      'Cantidad Pallets': record.pallets,
+      'Saldo Impacto': (record.type || 'ingreso') === 'egreso' ? -record.pallets : record.pallets
     }));
 
     const ws = XLSX.utils.json_to_sheet(dataToExport);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Abastecimientos");
-    XLSX.writeFile(wb, `Abastecimientos_Recibidos_${format(new Date(), 'yyyy-MM-dd')}.xlsx`);
+    XLSX.writeFile(wb, `Abastecimientos_Pallets_${format(new Date(), 'yyyy-MM-dd')}.xlsx`);
   };
 
   const handleExportPalletExcel = (data: any[], start: string, end: string) => {
@@ -2572,8 +2603,8 @@ export default function App() {
           <div className="space-y-8">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div>
-                <h2 className="text-3xl font-bold text-slate-200">Abastecimientos Recibidos</h2>
-                <p className="text-slate-400">Control de pallets recibidos por cada cliente</p>
+                <h2 className="text-3xl font-bold text-slate-200">Abastecimientos y Devoluciones</h2>
+                <p className="text-slate-400">Control de ingresos y salidas (devoluciones) de pallets por cliente</p>
               </div>
               <button 
                 onClick={() => handleExportAbastExcel(filteredAbastecimientos)}
@@ -2583,17 +2614,88 @@ export default function App() {
               </button>
             </div>
 
+            {/* Stats Summary Bar */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="bg-slate-900/90 rounded-2xl p-5 border border-slate-800 shadow-lg flex items-center gap-4">
+                <div className="p-3 bg-emerald-950/80 border border-emerald-800/50 rounded-xl text-emerald-400">
+                  <ArrowDownRight size={24} />
+                </div>
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Total Ingresos</p>
+                  <p className="text-2xl font-bold font-mono text-emerald-400">+{abastStats.totalIngresos} <span className="text-xs text-slate-400 font-sans font-normal">pallets</span></p>
+                </div>
+              </div>
+
+              <div className="bg-slate-900/90 rounded-2xl p-5 border border-slate-800 shadow-lg flex items-center gap-4">
+                <div className="p-3 bg-rose-950/80 border border-rose-800/50 rounded-xl text-rose-400">
+                  <ArrowUpRight size={24} />
+                </div>
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Total Salidas / Devoluciones</p>
+                  <p className="text-2xl font-bold font-mono text-rose-400">-{abastStats.totalEgresos} <span className="text-xs text-slate-400 font-sans font-normal">pallets</span></p>
+                </div>
+              </div>
+
+              <div className="bg-slate-900/90 rounded-2xl p-5 border border-slate-800 shadow-lg flex items-center gap-4">
+                <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl text-slate-300">
+                  <Truck size={24} />
+                </div>
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Saldo Neto</p>
+                  <p className={cn(
+                    "text-2xl font-bold font-mono",
+                    abastStats.saldoNeto >= 0 ? "text-slate-100" : "text-amber-400"
+                  )}>
+                    {abastStats.saldoNeto} <span className="text-xs text-slate-400 font-sans font-normal">pallets en poder</span>
+                  </p>
+                </div>
+              </div>
+            </div>
+
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
               {/* Form Section */}
               <div className="lg:col-span-1 space-y-6">
                 <section className="bg-slate-900 rounded-3xl p-6 shadow-xl border border-slate-800">
                   <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-500 mb-6 flex items-center gap-2 font-bold">
                     {isEditingAbast ? <Pencil size={16} className="text-amber-500" /> : <Plus size={16} />} 
-                    {isEditingAbast ? 'Editar Abastecimiento' : 'Nuevo Abastecimiento'}
+                    {isEditingAbast ? 'Editar Movimiento' : 'Nuevo Movimiento de Pallets'}
                   </h2>
                   <form onSubmit={handleAbastSubmit} className="space-y-4">
+                    {/* Movement Type Selector Toggle */}
                     <div>
-                      <label className="block text-xs font-medium text-slate-400 mb-1 ml-1 font-bold">Fecha de Recepción</label>
+                      <label className="block text-xs font-medium text-slate-400 mb-1.5 ml-1 font-bold">Tipo de Movimiento</label>
+                      <div className="grid grid-cols-2 gap-2 p-1 bg-slate-950 rounded-xl border border-slate-800">
+                        <button
+                          type="button"
+                          onClick={() => setNewAbastType('ingreso')}
+                          className={cn(
+                            "py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5",
+                            newAbastType === 'ingreso'
+                              ? "bg-emerald-600 text-white shadow-md"
+                              : "text-slate-400 hover:text-slate-200"
+                          )}
+                        >
+                          <PlusCircle size={14} /> Ingreso (Entrada)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setNewAbastType('egreso')}
+                          className={cn(
+                            "py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5",
+                            newAbastType === 'egreso'
+                              ? "bg-rose-600 text-white shadow-md"
+                              : "text-slate-400 hover:text-slate-200"
+                          )}
+                        >
+                          <MinusCircle size={14} /> Salida (Devolución)
+                        </button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-slate-400 mb-1 ml-1 font-bold">
+                        {newAbastType === 'egreso' ? 'Fecha de Salida / Devolución' : 'Fecha de Recepción / Ingreso'}
+                      </label>
                       <input 
                         type="date" 
                         value={newAbastDate}
@@ -2651,7 +2753,9 @@ export default function App() {
                     </div>
 
                     <div>
-                      <label className="block text-xs font-medium text-slate-400 mb-1 ml-1 font-bold">Cantidad de Pallets Recibidos</label>
+                      <label className="block text-xs font-medium text-slate-400 mb-1 ml-1 font-bold">
+                        {newAbastType === 'egreso' ? 'Cantidad de Pallets que Salen / se Devuelven' : 'Cantidad de Pallets Recibidos'}
+                      </label>
                       <input 
                         type="number" 
                         placeholder="0"
@@ -2659,6 +2763,7 @@ export default function App() {
                         onChange={(e) => setNewAbastPallets(e.target.value)}
                         className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none font-mono text-slate-200 text-sm"
                         required
+                        min="1"
                       />
                     </div>
 
@@ -2672,6 +2777,7 @@ export default function App() {
                             setNewAbastRemito('');
                             setNewAbastPallets('');
                             setNewAbastCustomClient('');
+                            setNewAbastType('ingreso');
                           }}
                           className="w-1/2 py-3 bg-slate-800 hover:bg-slate-750 text-slate-200 font-bold rounded-xl transition-all flex items-center justify-center gap-2"
                         >
@@ -2681,12 +2787,15 @@ export default function App() {
                       <button 
                         type="submit"
                         className={cn(
-                          "py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl shadow-lg transition-all flex items-center justify-center gap-2",
+                          "py-3 text-white font-bold rounded-xl shadow-lg transition-all flex items-center justify-center gap-2",
+                          newAbastType === 'egreso' 
+                            ? "bg-rose-600 hover:bg-rose-500" 
+                            : "bg-emerald-600 hover:bg-emerald-500",
                           isEditingAbast ? "w-1/2" : "w-full"
                         )}
                       >
                         <Save size={18} />
-                        {isEditingAbast ? 'Actualizar' : 'Guardar'}
+                        {isEditingAbast ? 'Actualizar' : newAbastType === 'egreso' ? 'Guardar Salida' : 'Guardar Ingreso'}
                       </button>
                     </div>
                   </form>
@@ -2697,16 +2806,28 @@ export default function App() {
               <div className="lg:col-span-2 space-y-6">
                 <section className="bg-slate-900 rounded-3xl p-6 shadow-xl border border-slate-800">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-                    <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-500 font-bold">Historial de Abastecimientos Recibidos</h2>
+                    <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-500 font-bold">Historial de Movimientos de Pallets</h2>
                     {abastecimientos.length > 0 && (
                       <span className="text-xs font-mono px-3 py-1 bg-slate-950 border border-slate-800 rounded-full text-slate-400">
-                        Total Filtrado: <strong className="text-emerald-500">{totalFilteredPallets}</strong> pallets en <strong className="text-slate-300">{filteredAbastecimientos.length}</strong> entregas
+                        Total Filtrado: <strong className="text-emerald-500">+{abastStats.totalIngresos}</strong> / <strong className="text-rose-400">-{abastStats.totalEgresos}</strong> en <strong className="text-slate-300">{filteredAbastecimientos.length}</strong> movimientos
                       </span>
                     )}
                   </div>
 
                   {abastecimientos.length > 0 && (
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 p-4 bg-slate-950/60 rounded-2xl border border-slate-800/80">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 mb-6 p-4 bg-slate-950/60 rounded-2xl border border-slate-800/80">
+                      <div>
+                        <label className="block text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1.5 ml-1">Tipo Movimiento</label>
+                        <select
+                          value={filterAbastType}
+                          onChange={(e) => setFilterAbastType(e.target.value)}
+                          className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none text-slate-200 text-sm font-semibold"
+                        >
+                          <option value="">Todos los tipos</option>
+                          <option value="ingreso">Solo Ingresos (+)</option>
+                          <option value="egreso">Solo Salidas / Devoluciones (-)</option>
+                        </select>
+                      </div>
                       <div>
                         <label className="block text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1.5 ml-1">Filtrar por Cliente</label>
                         <select
@@ -2715,9 +2836,9 @@ export default function App() {
                           className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none text-slate-200 text-sm font-semibold"
                         >
                           <option value="">Todos los clientes</option>
-                           {clientOptions.map((c) => (
-                             <option key={c} value={c}>{c}</option>
-                           ))}
+                          {clientOptions.map((c) => (
+                            <option key={c} value={c}>{c}</option>
+                          ))}
                         </select>
                       </div>
                       <div>
@@ -2739,10 +2860,11 @@ export default function App() {
                         />
                       </div>
 
-                      {(filterAbastClient || filterAbastStartDate || filterAbastEndDate) && (
-                        <div className="md:col-span-3 flex justify-end pt-1">
+                      {(filterAbastType || filterAbastClient || filterAbastStartDate || filterAbastEndDate) && (
+                        <div className="sm:col-span-2 md:col-span-4 flex justify-end pt-1">
                           <button
                             onClick={() => {
+                              setFilterAbastType('');
                               setFilterAbastClient('');
                               setFilterAbastStartDate('');
                               setFilterAbastEndDate('');
@@ -2759,15 +2881,16 @@ export default function App() {
                   {abastecimientos.length === 0 ? (
                     <div className="text-center py-20 bg-slate-950 rounded-2xl border border-slate-800/50">
                       <Truck size={48} className="mx-auto text-slate-800 mb-4" />
-                      <p className="text-slate-500 italic">No hay abastecimientos registrados todavía.</p>
+                      <p className="text-slate-500 italic">No hay movimientos de abastecimiento registrados todavía.</p>
                     </div>
                   ) : filteredAbastecimientos.length === 0 ? (
                     <div className="text-center py-20 bg-slate-950 rounded-2xl border border-slate-800/50">
                       <Filter size={48} className="mx-auto text-slate-800 mb-4 animate-pulse" />
-                      <p className="text-slate-400 font-semibold">No se encontraron abastecimientos con los filtros seleccionados.</p>
-                      <p className="text-slate-500 text-xs mt-1">Prueba cambiando el cliente o el rango de fechas.</p>
+                      <p className="text-slate-400 font-semibold">No se encontraron movimientos con los filtros seleccionados.</p>
+                      <p className="text-slate-500 text-xs mt-1">Prueba cambiando el tipo de movimiento, cliente o rango de fechas.</p>
                       <button
                         onClick={() => {
+                          setFilterAbastType('');
                           setFilterAbastClient('');
                           setFilterAbastStartDate('');
                           setFilterAbastEndDate('');
@@ -2782,6 +2905,7 @@ export default function App() {
                       <table className="w-full text-left border-collapse">
                         <thead>
                           <tr className="border-b border-slate-800 bg-slate-900/50 text-xs font-bold uppercase tracking-wider text-slate-400">
+                            <th className="p-4">Tipo</th>
                             <th className="p-4">Fecha</th>
                             <th className="p-4">Cliente</th>
                             <th className="p-4">Nº Remito</th>
@@ -2790,40 +2914,58 @@ export default function App() {
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-800/50 text-sm">
-                          {filteredAbastecimientos.map((record) => (
-                            <tr key={record.id} className="hover:bg-slate-900/30 group transition-all">
-                              <td className="p-4 font-medium text-slate-300">
-                                {format(parseISO(record.date), 'dd/MM/yyyy', { locale: es })}
-                              </td>
-                              <td className="p-4 font-semibold text-emerald-500">
-                                {record.client}
-                              </td>
-                              <td className="p-4 font-mono text-slate-400">
-                                {record.remito}
-                              </td>
-                              <td className="p-4 text-right font-mono font-bold text-slate-200">
-                                {record.pallets}
-                              </td>
-                              <td className="p-4">
-                                <div className="flex justify-center gap-2 opacity-0 group-hover:opacity-100 transition-all">
-                                  <button 
-                                    onClick={() => handleAbastEdit(record)} 
-                                    className="p-1.5 bg-slate-900 text-slate-400 hover:text-amber-500 hover:bg-slate-800 rounded-lg transition-all"
-                                    title="Editar"
-                                  >
-                                    <Pencil size={15} />
-                                  </button>
-                                  <button 
-                                    onClick={() => handleAbastDelete(record.id)} 
-                                    className="p-1.5 bg-slate-900 text-slate-400 hover:text-red-500 hover:bg-slate-800 rounded-lg transition-all"
-                                    title="Eliminar"
-                                  >
-                                    <Trash2 size={15} />
-                                  </button>
-                                </div>
-                              </td>
-                            </tr>
-                          ))}
+                          {filteredAbastecimientos.map((record) => {
+                            const isEgreso = record.type === 'egreso';
+                            return (
+                              <tr key={record.id} className="hover:bg-slate-900/30 group transition-all">
+                                <td className="p-4">
+                                  {isEgreso ? (
+                                    <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-full bg-rose-950/80 text-rose-400 border border-rose-800/60">
+                                      <ArrowUpRight size={12} /> Salida
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-full bg-emerald-950/80 text-emerald-400 border border-emerald-800/60">
+                                      <ArrowDownRight size={12} /> Ingreso
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="p-4 font-medium text-slate-300">
+                                  {format(parseISO(record.date), 'dd/MM/yyyy', { locale: es })}
+                                </td>
+                                <td className="p-4 font-semibold text-slate-200">
+                                  {record.client}
+                                </td>
+                                <td className="p-4 font-mono text-slate-400">
+                                  {record.remito}
+                                </td>
+                                <td className="p-4 text-right font-mono font-bold">
+                                  {isEgreso ? (
+                                    <span className="text-rose-400">-{record.pallets}</span>
+                                  ) : (
+                                    <span className="text-emerald-400">+{record.pallets}</span>
+                                  )}
+                                </td>
+                                <td className="p-4">
+                                  <div className="flex justify-center gap-2 opacity-0 group-hover:opacity-100 transition-all">
+                                    <button 
+                                      onClick={() => handleAbastEdit(record)} 
+                                      className="p-1.5 bg-slate-900 text-slate-400 hover:text-amber-500 hover:bg-slate-800 rounded-lg transition-all"
+                                      title="Editar"
+                                    >
+                                      <Pencil size={15} />
+                                    </button>
+                                    <button 
+                                      onClick={() => handleAbastDelete(record.id)} 
+                                      className="p-1.5 bg-slate-900 text-slate-400 hover:text-red-500 hover:bg-slate-800 rounded-lg transition-all"
+                                      title="Eliminar"
+                                    >
+                                      <Trash2 size={15} />
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>
