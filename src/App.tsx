@@ -177,6 +177,9 @@ interface AbastecimientoRecord {
   client: string;
   remito: string;
   pallets: number;
+  pallets_arlog?: number;
+  pallets_descartables?: number;
+  pallets_rotos?: number;
   type?: 'ingreso' | 'egreso';
   created_at: any;
 }
@@ -280,6 +283,9 @@ export default function App() {
   const [newAbastCustomClient, setNewAbastCustomClient] = useState('');
   const [newAbastRemito, setNewAbastRemito] = useState('');
   const [newAbastPallets, setNewAbastPallets] = useState('');
+  const [newAbastArlog, setNewAbastArlog] = useState('');
+  const [newAbastDescartables, setNewAbastDescartables] = useState('');
+  const [newAbastRotos, setNewAbastRotos] = useState('');
   const [isEditingAbast, setIsEditingAbast] = useState(false);
   const [editingAbastId, setEditingAbastId] = useState<string | null>(null);
 
@@ -1046,16 +1052,37 @@ export default function App() {
     let totalIngresos = 0;
     let totalEgresos = 0;
 
+    let totalIngresosArlog = 0;
+    let totalIngresosDescartables = 0;
+    let totalIngresosRotos = 0;
+
+    let totalEgresosArlog = 0;
+    let totalEgresosDescartables = 0;
+    let totalEgresosRotos = 0;
+
     filteredAbastecimientos.forEach(item => {
       const type = item.type || 'ingreso';
+      const arlog = item.pallets_arlog ?? (item.pallets || 0);
+      const descartables = item.pallets_descartables ?? 0;
+      const rotos = item.pallets_rotos ?? 0;
+
       if (type === 'egreso') {
         totalEgresos += item.pallets;
+        totalEgresosArlog += arlog;
+        totalEgresosDescartables += descartables;
+        totalEgresosRotos += rotos;
       } else {
         totalIngresos += item.pallets;
+        totalIngresosArlog += arlog;
+        totalIngresosDescartables += descartables;
+        totalIngresosRotos += rotos;
       }
     });
 
     const saldoNeto = totalIngresos - totalEgresos;
+    const stockArlog = totalIngresosArlog - totalEgresosArlog;
+    const stockDescartables = totalIngresosDescartables - totalEgresosDescartables;
+    const stockRotos = totalIngresosRotos - totalEgresosRotos;
 
     // Helper to get the last position record (positions in warehouse) for a client
     const getLastPosition = <T extends { date: string; positions: number }>(list: T[]) => {
@@ -1129,6 +1156,15 @@ export default function App() {
       totalIngresos, 
       totalEgresos, 
       saldoNeto,
+      stockArlog,
+      stockDescartables,
+      stockRotos,
+      totalIngresosArlog,
+      totalIngresosDescartables,
+      totalIngresosRotos,
+      totalEgresosArlog,
+      totalEgresosDescartables,
+      totalEgresosRotos,
       totalPositionsForDevolver,
       totalIngresosForDevolver,
       palletsADevolver
@@ -1146,8 +1182,8 @@ export default function App() {
 
   const handleAbastSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newAbastDate || !newAbastClient || !newAbastRemito || !newAbastPallets) {
-      setNotification({ message: 'Todos los campos son requeridos', type: 'error' });
+    if (!newAbastDate || !newAbastClient || !newAbastRemito) {
+      setNotification({ message: 'Fecha, Cliente y Número de Remito son requeridos', type: 'error' });
       return;
     }
 
@@ -1157,9 +1193,25 @@ export default function App() {
       return;
     }
 
-    const palletsNum = parseInt(newAbastPallets);
-    if (isNaN(palletsNum) || palletsNum <= 0) {
-      setNotification({ message: 'Ingrese una cantidad válida mayor a 0', type: 'error' });
+    const arlogNum = parseInt(newAbastArlog || '0') || 0;
+    const descartablesNum = parseInt(newAbastDescartables || '0') || 0;
+    const rotosNum = parseInt(newAbastRotos || '0') || 0;
+    const fallbackPallets = parseInt(newAbastPallets || '0') || 0;
+
+    let palletsNum = arlogNum + descartablesNum + rotosNum;
+    let finalArlog = arlogNum;
+    let finalDescartables = descartablesNum;
+    let finalRotos = rotosNum;
+
+    if (palletsNum === 0 && fallbackPallets > 0) {
+      palletsNum = fallbackPallets;
+      finalArlog = fallbackPallets;
+      finalDescartables = 0;
+      finalRotos = 0;
+    }
+
+    if (palletsNum <= 0) {
+      setNotification({ message: 'Ingrese una cantidad de pallets mayor a 0 (en Arlog, Descartables o Rotos)', type: 'error' });
       return;
     }
 
@@ -1171,6 +1223,9 @@ export default function App() {
           client: clientName,
           remito: newAbastRemito,
           pallets: palletsNum,
+          pallets_arlog: finalArlog,
+          pallets_descartables: finalDescartables,
+          pallets_rotos: finalRotos,
           type: newAbastType
         });
         setNotification({ message: 'Registro de abastecimiento actualizado con éxito', type: 'success' });
@@ -1180,6 +1235,9 @@ export default function App() {
           client: clientName,
           remito: newAbastRemito,
           pallets: palletsNum,
+          pallets_arlog: finalArlog,
+          pallets_descartables: finalDescartables,
+          pallets_rotos: finalRotos,
           type: newAbastType,
           created_at: serverTimestamp()
         });
@@ -1189,6 +1247,9 @@ export default function App() {
       // Reset form
       setNewAbastRemito('');
       setNewAbastPallets('');
+      setNewAbastArlog('');
+      setNewAbastDescartables('');
+      setNewAbastRotos('');
       setNewAbastCustomClient('');
       setNewAbastType('ingreso');
       setIsEditingAbast(false);
@@ -1212,6 +1273,13 @@ export default function App() {
       setNewAbastCustomClient(record.client);
     }
     setNewAbastRemito(record.remito);
+    const arlogVal = record.pallets_arlog !== undefined ? record.pallets_arlog : record.pallets;
+    const descVal = record.pallets_descartables !== undefined ? record.pallets_descartables : 0;
+    const rotosVal = record.pallets_rotos !== undefined ? record.pallets_rotos : 0;
+
+    setNewAbastArlog(arlogVal > 0 ? arlogVal.toString() : '');
+    setNewAbastDescartables(descVal > 0 ? descVal.toString() : '');
+    setNewAbastRotos(rotosVal > 0 ? rotosVal.toString() : '');
     setNewAbastPallets(record.pallets.toString());
     setIsEditingAbast(true);
     setEditingAbastId(record.id);
@@ -1238,7 +1306,10 @@ export default function App() {
       'Fecha': record.date,
       'Cliente': record.client,
       'Número de Remito': record.remito,
-      'Cantidad Pallets': record.pallets,
+      'Pallets Arlog': record.pallets_arlog ?? record.pallets,
+      'Pallets Descartables': record.pallets_descartables ?? 0,
+      'Pallets Rotos': record.pallets_rotos ?? 0,
+      'Total Pallets': record.pallets,
       'Saldo Impacto': (record.type || 'ingreso') === 'egreso' ? -record.pallets : record.pallets
     }));
 
@@ -2726,12 +2797,12 @@ export default function App() {
                   <Truck size={24} />
                 </div>
                 <div>
-                  <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Saldo Neto</p>
+                  <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Saldo Neto Total</p>
                   <p className={cn(
                     "text-2xl font-bold font-mono",
                     abastStats.saldoNeto >= 0 ? "text-slate-100" : "text-amber-400"
                   )}>
-                    {abastStats.saldoNeto} <span className="text-xs text-slate-400 font-sans font-normal">pallets en poder</span>
+                    {abastStats.saldoNeto} <span className="text-xs text-slate-400 font-sans font-normal">pallets</span>
                   </p>
                 </div>
               </div>
@@ -2756,6 +2827,61 @@ export default function App() {
                       No aplica para Raízen
                     </p>
                   )}
+                </div>
+              </div>
+            </div>
+
+            {/* Stock por Estado / Tipo de Pallet */}
+            <div className="bg-slate-900/60 rounded-3xl p-5 border border-slate-800 shadow-xl space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-bold uppercase tracking-widest text-slate-400 flex items-center gap-2">
+                  <Package size={16} className="text-emerald-500" /> Stock Actual por Estado de Pallet
+                </h3>
+                <span className="text-[11px] text-slate-500 font-mono">
+                  Ingresos (-) Salidas
+                </span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="bg-slate-950 rounded-2xl p-4 border border-slate-800/80">
+                  <div className="flex justify-between items-start">
+                    <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Stock Pallets Arlog</p>
+                    <span className="text-xs px-2 py-0.5 rounded bg-emerald-950 text-emerald-400 font-semibold border border-emerald-800/50">Estándar</span>
+                  </div>
+                  <p className="text-2xl font-bold font-mono text-emerald-400 mt-2">
+                    {abastStats.stockArlog} <span className="text-xs text-slate-500 font-normal">pallets</span>
+                  </p>
+                  <p className="text-[10px] text-slate-500 font-mono mt-1">
+                    +{abastStats.totalIngresosArlog} in / -{abastStats.totalEgresosArlog} out
+                  </p>
+                </div>
+
+                <div className="bg-slate-950 rounded-2xl p-4 border border-slate-800/80">
+                  <div className="flex justify-between items-start">
+                    <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Stock Descartables</p>
+                    <span className="text-xs px-2 py-0.5 rounded bg-cyan-950 text-cyan-400 font-semibold border border-cyan-800/50">Descartable</span>
+                  </div>
+                  <p className="text-2xl font-bold font-mono text-cyan-400 mt-2">
+                    {abastStats.stockDescartables} <span className="text-xs text-slate-500 font-normal">pallets</span>
+                  </p>
+                  <p className="text-[10px] text-slate-500 font-mono mt-1">
+                    +{abastStats.totalIngresosDescartables} in / -{abastStats.totalEgresosDescartables} out
+                  </p>
+                </div>
+
+                <div className="bg-slate-950 rounded-2xl p-4 border border-slate-800/80">
+                  <div className="flex justify-between items-start">
+                    <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Stock Pallets Rotos</p>
+                    <span className="text-xs px-2 py-0.5 rounded bg-rose-950 text-rose-400 font-semibold border border-rose-800/50">Dañados</span>
+                  </div>
+                  <p className={cn(
+                    "text-2xl font-bold font-mono mt-2",
+                    abastStats.stockRotos > 0 ? "text-amber-400" : "text-slate-200"
+                  )}>
+                    {abastStats.stockRotos} <span className="text-xs text-slate-500 font-normal">pallets</span>
+                  </p>
+                  <p className="text-[10px] text-slate-500 font-mono mt-1">
+                    +{abastStats.totalIngresosRotos} in / -{abastStats.totalEgresosRotos} out
+                  </p>
                 </div>
               </div>
             </div>
@@ -2860,19 +2986,58 @@ export default function App() {
                       />
                     </div>
 
-                    <div>
-                      <label className="block text-xs font-medium text-slate-400 mb-1 ml-1 font-bold">
-                        {newAbastType === 'egreso' ? 'Cantidad de Pallets que Salen / se Devuelven' : 'Cantidad de Pallets Recibidos'}
+                    {/* Desglose de Pallets por Estado */}
+                    <div className="p-4 bg-slate-950 rounded-2xl border border-slate-800 space-y-3">
+                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-400">
+                        Desglose de Pallets por Estado / Tipo
                       </label>
-                      <input 
-                        type="number" 
-                        placeholder="0"
-                        value={newAbastPallets}
-                        onChange={(e) => setNewAbastPallets(e.target.value)}
-                        className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none font-mono text-slate-200 text-sm"
-                        required
-                        min="1"
-                      />
+                      <div className="grid grid-cols-3 gap-2">
+                        <div>
+                          <label className="block text-[11px] font-bold text-slate-400 mb-1">
+                            Arlog / Std
+                          </label>
+                          <input 
+                            type="number" 
+                            placeholder="0"
+                            value={newAbastArlog}
+                            onChange={(e) => setNewAbastArlog(e.target.value)}
+                            className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none font-mono text-slate-200 text-sm"
+                            min="0"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-bold text-slate-400 mb-1">
+                            Descartables
+                          </label>
+                          <input 
+                            type="number" 
+                            placeholder="0"
+                            value={newAbastDescartables}
+                            onChange={(e) => setNewAbastDescartables(e.target.value)}
+                            className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none font-mono text-slate-200 text-sm"
+                            min="0"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-bold text-slate-400 mb-1">
+                            Rotos
+                          </label>
+                          <input 
+                            type="number" 
+                            placeholder="0"
+                            value={newAbastRotos}
+                            onChange={(e) => setNewAbastRotos(e.target.value)}
+                            className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none font-mono text-slate-200 text-sm"
+                            min="0"
+                          />
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between pt-2 border-t border-slate-800/80 text-xs">
+                        <span className="text-slate-400 font-semibold">Total Calculado:</span>
+                        <span className="font-mono font-bold text-emerald-400 text-sm">
+                          {(parseInt(newAbastArlog || '0') || 0) + (parseInt(newAbastDescartables || '0') || 0) + (parseInt(newAbastRotos || '0') || 0)} pallets
+                        </span>
+                      </div>
                     </div>
 
                     <div className="flex gap-3 pt-2">
@@ -2884,6 +3049,9 @@ export default function App() {
                             setEditingAbastId(null);
                             setNewAbastRemito('');
                             setNewAbastPallets('');
+                            setNewAbastArlog('');
+                            setNewAbastDescartables('');
+                            setNewAbastRotos('');
                             setNewAbastCustomClient('');
                             setNewAbastType('ingreso');
                           }}
@@ -3017,13 +3185,18 @@ export default function App() {
                             <th className="p-4">Fecha</th>
                             <th className="p-4">Cliente</th>
                             <th className="p-4">Nº Remito</th>
-                            <th className="p-4 text-right">Pallets</th>
+                            <th className="p-4">Desglose Estado</th>
+                            <th className="p-4 text-right">Total Pallets</th>
                             <th className="p-4 text-center">Acciones</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-800/50 text-sm">
                           {filteredAbastecimientos.map((record) => {
                             const isEgreso = record.type === 'egreso';
+                            const arlogVal = record.pallets_arlog ?? record.pallets;
+                            const descVal = record.pallets_descartables ?? 0;
+                            const rotosVal = record.pallets_rotos ?? 0;
+
                             return (
                               <tr key={record.id} className="hover:bg-slate-900/30 group transition-all">
                                 <td className="p-4">
@@ -3046,7 +3219,24 @@ export default function App() {
                                 <td className="p-4 font-mono text-slate-400">
                                   {record.remito}
                                 </td>
-                                <td className="p-4 text-right font-mono font-bold">
+                                <td className="p-4 text-xs font-mono">
+                                  <div className="flex flex-wrap gap-1.5">
+                                    <span className="px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-300">
+                                      Arlog: <strong className="text-emerald-400">{arlogVal}</strong>
+                                    </span>
+                                    {descVal > 0 && (
+                                      <span className="px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-300">
+                                        Desc: <strong className="text-cyan-400">{descVal}</strong>
+                                      </span>
+                                    )}
+                                    {rotosVal > 0 && (
+                                      <span className="px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-300">
+                                        Rotos: <strong className="text-rose-400">{rotosVal}</strong>
+                                      </span>
+                                    )}
+                                  </div>
+                                </td>
+                                <td className="p-4 text-right font-mono font-bold text-base">
                                   {isEgreso ? (
                                     <span className="text-rose-400">-{record.pallets}</span>
                                   ) : (

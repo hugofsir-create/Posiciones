@@ -130,7 +130,10 @@
         "date": { "type": "string", "description": "Date of movement (YYYY-MM-DD)" },
         "client": { "type": "string", "description": "Name of the client" },
         "remito": { "type": "string", "description": "Delivery note/Invoice number (Número de remito)" },
-        "pallets": { "type": "number", "description": "Quantity of pallets" },
+        "pallets": { "type": "number", "description": "Total quantity of pallets" },
+        "pallets_arlog": { "type": "number", "description": "Quantity of Arlog/Estándar pallets" },
+        "pallets_descartables": { "type": "number", "description": "Quantity of disposable (descartables) pallets" },
+        "pallets_rotos": { "type": "number", "description": "Quantity of damaged/broken (rotos) pallets" },
         "type": { "type": "string", "enum": ["ingreso", "egreso"], "description": "Movement type: ingreso (entrada/recepción) or egreso (salida/devolución)" },
         "created_at": { "type": "string", "format": "date-time", "description": "Timestamp when registered" }
       },
