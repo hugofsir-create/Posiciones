@@ -1057,55 +1057,73 @@ export default function App() {
 
     const saldoNeto = totalIngresos - totalEgresos;
 
-    // Helper to filter client position records by active date range
-    const filterByDate = <T extends { date: string; positions: number }>(list: T[]) => {
-      return list.filter(r => {
+    // Helper to get the last position record (positions in warehouse) for a client
+    const getLastPosition = <T extends { date: string; positions: number }>(list: T[]) => {
+      const filtered = list.filter(r => {
         if (filterAbastStartDate && r.date < filterAbastStartDate) return false;
         if (filterAbastEndDate && r.date > filterAbastEndDate) return false;
         return true;
       });
+      if (filtered.length === 0) return 0;
+      const sorted = [...filtered].sort((a, b) => b.date.localeCompare(a.date));
+      return sorted[0].positions;
     };
 
-    const bianchiPositions = filterByDate(palletRecords).reduce((s, r) => s + r.positions, 0);
-    const cepasPositions = filterByDate(cepasRecords).reduce((s, r) => s + r.positions, 0);
-    const laRuralPositions = filterByDate(laRuralRecords).reduce((s, r) => s + r.positions, 0);
-    const escorihuelaPositions = filterByDate(escorihuelaRecords).reduce((s, r) => s + r.positions, 0);
+    // Helper to get total ingresos for specific client names
+    const getIngresosByClient = (clientNames: string[]) => {
+      return filteredAbastecimientos
+        .filter(r => clientNames.includes(r.client) && (r.type || 'ingreso') === 'ingreso')
+        .reduce((s, r) => s + r.pallets, 0);
+    };
+
+    const bianchiLastPos = getLastPosition(palletRecords);
+    const bianchiIngresos = getIngresosByClient(['Bodegas Bianchi']);
+
+    const cepasLastPos = getLastPosition(cepasRecords);
+    const cepasIngresos = getIngresosByClient(['Cepas']);
+
+    const escorihuelaLastPos = getLastPosition(escorihuelaRecords);
+    const escorihuelaIngresos = getIngresosByClient(['Escorihuela Gascón', 'Escorihuela']);
+
+    const laRuralLastPos = getLastPosition(laRuralRecords);
+    const laRuralIngresos = getIngresosByClient(['La Rural (Rutini Wines)', 'La Rural']);
 
     let totalPositionsForDevolver: number | null = 0;
     let totalIngresosForDevolver = 0;
+    let palletsADevolver: number | null = 0;
 
     if (filterAbastClient === 'Raizen') {
       totalPositionsForDevolver = null;
+      totalIngresosForDevolver = 0;
+      palletsADevolver = null;
     } else if (filterAbastClient === 'Bodegas Bianchi') {
-      totalPositionsForDevolver = bianchiPositions;
-      totalIngresosForDevolver = filteredAbastecimientos
-        .filter(r => r.client === 'Bodegas Bianchi' && (r.type || 'ingreso') === 'ingreso')
-        .reduce((s, r) => s + r.pallets, 0);
+      totalPositionsForDevolver = bianchiLastPos;
+      totalIngresosForDevolver = bianchiIngresos;
+      palletsADevolver = bianchiIngresos - bianchiLastPos;
     } else if (filterAbastClient === 'Cepas') {
-      totalPositionsForDevolver = cepasPositions;
-      totalIngresosForDevolver = filteredAbastecimientos
-        .filter(r => r.client === 'Cepas' && (r.type || 'ingreso') === 'ingreso')
-        .reduce((s, r) => s + r.pallets, 0);
-    } else if (filterAbastClient === 'La Rural (Rutini Wines)' || filterAbastClient === 'La Rural') {
-      totalPositionsForDevolver = laRuralPositions;
-      totalIngresosForDevolver = filteredAbastecimientos
-        .filter(r => (r.client === 'La Rural (Rutini Wines)' || r.client === 'La Rural') && (r.type || 'ingreso') === 'ingreso')
-        .reduce((s, r) => s + r.pallets, 0);
+      totalPositionsForDevolver = cepasLastPos;
+      totalIngresosForDevolver = cepasIngresos;
+      palletsADevolver = cepasIngresos - cepasLastPos;
     } else if (filterAbastClient === 'Escorihuela Gascón' || filterAbastClient === 'Escorihuela') {
-      totalPositionsForDevolver = escorihuelaPositions;
-      totalIngresosForDevolver = filteredAbastecimientos
-        .filter(r => (r.client === 'Escorihuela Gascón' || r.client === 'Escorihuela') && (r.type || 'ingreso') === 'ingreso')
-        .reduce((s, r) => s + r.pallets, 0);
+      totalPositionsForDevolver = escorihuelaLastPos;
+      totalIngresosForDevolver = escorihuelaIngresos;
+      palletsADevolver = escorihuelaIngresos - escorihuelaLastPos;
+    } else if (filterAbastClient === 'La Rural (Rutini Wines)' || filterAbastClient === 'La Rural') {
+      totalPositionsForDevolver = laRuralLastPos;
+      totalIngresosForDevolver = laRuralIngresos;
+      palletsADevolver = laRuralIngresos - laRuralLastPos;
     } else if (!filterAbastClient) {
-      totalPositionsForDevolver = bianchiPositions + cepasPositions + laRuralPositions + escorihuelaPositions;
-      totalIngresosForDevolver = filteredAbastecimientos
-        .filter(r => r.client !== 'Raizen' && (r.type || 'ingreso') === 'ingreso')
-        .reduce((s, r) => s + r.pallets, 0);
+      totalPositionsForDevolver = bianchiLastPos + cepasLastPos + escorihuelaLastPos + laRuralLastPos;
+      totalIngresosForDevolver = bianchiIngresos + cepasIngresos + escorihuelaIngresos + laRuralIngresos;
+      palletsADevolver = (bianchiIngresos - bianchiLastPos) +
+                         (cepasIngresos - cepasLastPos) +
+                         (escorihuelaIngresos - escorihuelaLastPos) +
+                         (laRuralIngresos - laRuralLastPos);
     } else {
       totalPositionsForDevolver = null;
+      totalIngresosForDevolver = 0;
+      palletsADevolver = null;
     }
-
-    const palletsADevolver = totalPositionsForDevolver !== null ? totalPositionsForDevolver - totalIngresosForDevolver : null;
 
     return { 
       totalIngresos, 
@@ -2730,7 +2748,7 @@ export default function App() {
                         {abastStats.palletsADevolver} <span className="text-xs text-slate-400 font-sans font-normal">pallets</span>
                       </p>
                       <p className="text-[10px] text-slate-500 font-mono mt-0.5">
-                        Posiciones ({abastStats.totalPositionsForDevolver}) - Ingresos ({abastStats.totalIngresosForDevolver})
+                        Ingresos ({abastStats.totalIngresosForDevolver}) - Últ. Posición ({abastStats.totalPositionsForDevolver})
                       </p>
                     </>
                   ) : (
