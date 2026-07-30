@@ -26,7 +26,8 @@ import {
   ArrowDownRight,
   ArrowUpRight,
   PlusCircle,
-  MinusCircle
+  MinusCircle,
+  RotateCcw
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -1056,8 +1057,74 @@ export default function App() {
 
     const saldoNeto = totalIngresos - totalEgresos;
 
-    return { totalIngresos, totalEgresos, saldoNeto };
-  }, [filteredAbastecimientos]);
+    // Helper to filter client position records by active date range
+    const filterByDate = <T extends { date: string; positions: number }>(list: T[]) => {
+      return list.filter(r => {
+        if (filterAbastStartDate && r.date < filterAbastStartDate) return false;
+        if (filterAbastEndDate && r.date > filterAbastEndDate) return false;
+        return true;
+      });
+    };
+
+    const bianchiPositions = filterByDate(palletRecords).reduce((s, r) => s + r.positions, 0);
+    const cepasPositions = filterByDate(cepasRecords).reduce((s, r) => s + r.positions, 0);
+    const laRuralPositions = filterByDate(laRuralRecords).reduce((s, r) => s + r.positions, 0);
+    const escorihuelaPositions = filterByDate(escorihuelaRecords).reduce((s, r) => s + r.positions, 0);
+
+    let totalPositionsForDevolver: number | null = 0;
+    let totalIngresosForDevolver = 0;
+
+    if (filterAbastClient === 'Raizen') {
+      totalPositionsForDevolver = null;
+    } else if (filterAbastClient === 'Bodegas Bianchi') {
+      totalPositionsForDevolver = bianchiPositions;
+      totalIngresosForDevolver = filteredAbastecimientos
+        .filter(r => r.client === 'Bodegas Bianchi' && (r.type || 'ingreso') === 'ingreso')
+        .reduce((s, r) => s + r.pallets, 0);
+    } else if (filterAbastClient === 'Cepas') {
+      totalPositionsForDevolver = cepasPositions;
+      totalIngresosForDevolver = filteredAbastecimientos
+        .filter(r => r.client === 'Cepas' && (r.type || 'ingreso') === 'ingreso')
+        .reduce((s, r) => s + r.pallets, 0);
+    } else if (filterAbastClient === 'La Rural (Rutini Wines)' || filterAbastClient === 'La Rural') {
+      totalPositionsForDevolver = laRuralPositions;
+      totalIngresosForDevolver = filteredAbastecimientos
+        .filter(r => (r.client === 'La Rural (Rutini Wines)' || r.client === 'La Rural') && (r.type || 'ingreso') === 'ingreso')
+        .reduce((s, r) => s + r.pallets, 0);
+    } else if (filterAbastClient === 'Escorihuela Gascón' || filterAbastClient === 'Escorihuela') {
+      totalPositionsForDevolver = escorihuelaPositions;
+      totalIngresosForDevolver = filteredAbastecimientos
+        .filter(r => (r.client === 'Escorihuela Gascón' || r.client === 'Escorihuela') && (r.type || 'ingreso') === 'ingreso')
+        .reduce((s, r) => s + r.pallets, 0);
+    } else if (!filterAbastClient) {
+      totalPositionsForDevolver = bianchiPositions + cepasPositions + laRuralPositions + escorihuelaPositions;
+      totalIngresosForDevolver = filteredAbastecimientos
+        .filter(r => r.client !== 'Raizen' && (r.type || 'ingreso') === 'ingreso')
+        .reduce((s, r) => s + r.pallets, 0);
+    } else {
+      totalPositionsForDevolver = null;
+    }
+
+    const palletsADevolver = totalPositionsForDevolver !== null ? totalPositionsForDevolver - totalIngresosForDevolver : null;
+
+    return { 
+      totalIngresos, 
+      totalEgresos, 
+      saldoNeto,
+      totalPositionsForDevolver,
+      totalIngresosForDevolver,
+      palletsADevolver
+    };
+  }, [
+    filteredAbastecimientos, 
+    filterAbastClient, 
+    filterAbastStartDate, 
+    filterAbastEndDate, 
+    palletRecords, 
+    cepasRecords, 
+    laRuralRecords, 
+    escorihuelaRecords
+  ]);
 
   const handleAbastSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -2615,7 +2682,7 @@ export default function App() {
             </div>
 
             {/* Stats Summary Bar */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="bg-slate-900/90 rounded-2xl p-5 border border-slate-800 shadow-lg flex items-center gap-4">
                 <div className="p-3 bg-emerald-950/80 border border-emerald-800/50 rounded-xl text-emerald-400">
                   <ArrowDownRight size={24} />
@@ -2648,6 +2715,29 @@ export default function App() {
                   )}>
                     {abastStats.saldoNeto} <span className="text-xs text-slate-400 font-sans font-normal">pallets en poder</span>
                   </p>
+                </div>
+              </div>
+
+              <div className="bg-slate-900/90 rounded-2xl p-5 border border-slate-800 shadow-lg flex items-center gap-4">
+                <div className="p-3 bg-indigo-950/80 border border-indigo-800/50 rounded-xl text-indigo-400">
+                  <RotateCcw size={24} />
+                </div>
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Pallets a Devolver</p>
+                  {abastStats.palletsADevolver !== null ? (
+                    <>
+                      <p className="text-2xl font-bold font-mono text-indigo-400">
+                        {abastStats.palletsADevolver} <span className="text-xs text-slate-400 font-sans font-normal">pallets</span>
+                      </p>
+                      <p className="text-[10px] text-slate-500 font-mono mt-0.5">
+                        Posiciones ({abastStats.totalPositionsForDevolver}) - Ingresos ({abastStats.totalIngresosForDevolver})
+                      </p>
+                    </>
+                  ) : (
+                    <p className="text-xs font-semibold text-slate-500 font-sans mt-1">
+                      No aplica para Raízen
+                    </p>
+                  )}
                 </div>
               </div>
             </div>
