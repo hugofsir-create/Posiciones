@@ -27,9 +27,11 @@ import {
   ArrowUpRight,
   PlusCircle,
   MinusCircle,
-  RotateCcw
+  RotateCcw,
+  Bot
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { AgentAutomation } from './components/AgentAutomation';
 import { 
   format, 
   subDays, 
@@ -256,7 +258,7 @@ export default function App() {
   const [laRuralRecords, setLaRuralRecords] = useState<LaRuralRecord[]>([]);
   const [laRuralReports, setLaRuralReports] = useState<LaRuralReport[]>([]);
   const [abastecimientos, setAbastecimientos] = useState<AbastecimientoRecord[]>([]);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'history' | 'bianchi' | 'cepas' | 'escorihuela' | 'la_rural' | 'abastecimientos' | 'backup'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'history' | 'bianchi' | 'cepas' | 'escorihuela' | 'la_rural' | 'abastecimientos' | 'backup' | 'agent'>('dashboard');
   const [selectedReport, setSelectedReport] = useState<SavedReport | null>(null);
   const [selectedPalletReport, setSelectedPalletReport] = useState<PalletReport | null>(null);
   const [selectedCepasReport, setSelectedCepasReport] = useState<CepasReport | null>(null);
@@ -1797,6 +1799,16 @@ export default function App() {
             >
               <Database size={18} />
               Backup
+            </button>
+            <button 
+              onClick={() => setActiveTab('agent')}
+              className={cn(
+                "flex items-center gap-2 px-4 md:px-5 py-2 rounded-xl text-sm font-semibold transition-all border border-emerald-500/30",
+                activeTab === 'agent' ? "bg-emerald-600 text-white shadow-lg shadow-emerald-900/40" : "text-emerald-400 bg-emerald-500/5 hover:bg-emerald-500/10 hover:text-emerald-300"
+              )}
+            >
+              <Bot size={18} />
+              Agente Descargas & Envíos
             </button>
           </div>
         </header>
@@ -3381,6 +3393,23 @@ export default function App() {
               </div>
             </div>
           </div>
+        ) : activeTab === 'agent' ? (
+          <AgentAutomation
+            datasets={{
+              records,
+              savedReports,
+              palletRecords,
+              palletReports,
+              cepasRecords,
+              cepasReports,
+              escorihuelaRecords,
+              escorihuelaReports,
+              laRuralRecords,
+              laRuralReports,
+              abastecimientos
+            }}
+            onShowNotification={(msg, type) => setNotification({ message: msg, type })}
+          />
         ) : (
           <div className="text-center py-20">
             <p className="text-slate-500">Selecciona una pestaña para ver el contenido</p>
