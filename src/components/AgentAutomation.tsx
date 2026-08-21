@@ -733,8 +733,18 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
         hasPassword: true
       }));
 
+      // Immediate local state update for instant visual feedback
+      setServerStatus(prev => ({
+        status: 'active',
+        mode: 'server_24_7',
+        currentTimeArgentina: prev?.currentTimeArgentina || format(new Date(), 'dd/MM/yyyy HH:mm:ss'),
+        smtpConfigured: true,
+        smtpHost: smtpForm.host,
+        smtpUser: smtpForm.user.replace(/(.{2})(.*)(@.*)/, '$1***$3')
+      }));
+
       onShowNotification('Configuración SMTP guardada con éxito para envíos 24/7', 'success');
-      fetchServerStatus();
+      await fetchServerStatus();
     } catch (err: any) {
       onShowNotification('Error guardando configuración: ' + (err.message || 'Error desconocido'), 'error');
     } finally {
@@ -802,51 +812,52 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
   };
 
   // Apply SMTP Presets
-  const handleApplyPreset = (preset: 'gmail' | 'office365' | 'brevo' | 'sendgrid') => {
+  const handleApplyPreset = (preset: 'office365' | 'outlook_personal' | 'calico_custom' | 'exchange') => {
     isSmtpDirtyRef.current = true;
     switch (preset) {
-      case 'gmail':
-        setSmtpForm(prev => ({
-          ...prev,
-          host: 'smtp.gmail.com',
-          port: 587,
-          secure: false,
-          user: prev.user || 'hugofsir@gmail.com',
-          fromEmail: prev.fromEmail || prev.user || 'hugofsir@gmail.com',
-          fromName: prev.fromName || 'Calico S.A. Automatizaciones'
-        }));
-        onShowNotification('Plantilla Gmail aplicada. Recuerda usar una Contraseña de Aplicación de 16 letras de Google.', 'info');
-        break;
       case 'office365':
         setSmtpForm(prev => ({
           ...prev,
           host: 'smtp.office365.com',
           port: 587,
           secure: false,
+          user: prev.user || 'hsir@calico-sa.com.ar',
+          fromEmail: prev.fromEmail || prev.user || 'hsir@calico-sa.com.ar',
           fromName: prev.fromName || 'Calico S.A. Automatizaciones'
         }));
-        onShowNotification('Plantilla Microsoft 365 / Outlook aplicada.', 'info');
+        onShowNotification('Plantilla Microsoft 365 / Outlook Corporativo aplicada (smtp.office365.com : 587).', 'info');
         break;
-      case 'brevo':
+      case 'outlook_personal':
         setSmtpForm(prev => ({
           ...prev,
-          host: 'smtp-relay.brevo.com',
+          host: 'smtp-mail.outlook.com',
           port: 587,
           secure: false,
           fromName: prev.fromName || 'Calico S.A. Automatizaciones'
         }));
-        onShowNotification('Plantilla Brevo SMTP aplicada.', 'info');
+        onShowNotification('Plantilla Outlook Personal / Hotmail aplicada (smtp-mail.outlook.com : 587).', 'info');
         break;
-      case 'sendgrid':
+      case 'calico_custom':
         setSmtpForm(prev => ({
           ...prev,
-          host: 'smtp.sendgrid.net',
+          host: 'mail.calico-sa.com.ar',
           port: 587,
           secure: false,
-          user: 'apikey',
+          user: prev.user || 'hsir@calico-sa.com.ar',
+          fromEmail: prev.fromEmail || prev.user || 'hsir@calico-sa.com.ar',
           fromName: prev.fromName || 'Calico S.A. Automatizaciones'
         }));
-        onShowNotification('Plantilla SendGrid aplicada (Usuario fijado en "apikey").', 'info');
+        onShowNotification('Plantilla Servidor Calico S.A. aplicada (mail.calico-sa.com.ar : 587).', 'info');
+        break;
+      case 'exchange':
+        setSmtpForm(prev => ({
+          ...prev,
+          host: 'outlook.office365.com',
+          port: 587,
+          secure: false,
+          fromName: prev.fromName || 'Calico S.A. Automatizaciones'
+        }));
+        onShowNotification('Plantilla Exchange / Relay aplicada.', 'info');
         break;
     }
   };
@@ -1338,16 +1349,32 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
                     <CheckCircle2 size={12} /> ONLINE 24/7
                   </span>
                 </div>
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-2">
                   <span className="text-xs text-slate-400 font-mono">ESTADO SMTP:</span>
-                  <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-bold ${
-                    serverStatus?.smtpConfigured
+                  <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
+                    (serverStatus?.smtpConfigured || (smtpForm.host && (smtpForm.hasPassword || smtpForm.pass)))
                       ? 'bg-emerald-950 text-emerald-400 border border-emerald-800/50'
                       : 'bg-amber-950 text-amber-400 border border-amber-800/50'
                   }`}>
-                    {serverStatus?.smtpConfigured ? 'Conectado' : 'Sin Configurar'}
+                    {(serverStatus?.smtpConfigured || (smtpForm.host && (smtpForm.hasPassword || smtpForm.pass))) ? (
+                      <>
+                        <CheckCircle2 size={12} />
+                        <span>Conectado {serverStatus?.smtpHost ? `(${serverStatus.smtpHost})` : (smtpForm.host ? `(${smtpForm.host})` : '')}</span>
+                      </>
+                    ) : (
+                      <>
+                        <AlertCircle size={12} />
+                        <span>Sin Configurar</span>
+                      </>
+                    )}
                   </span>
                 </div>
+                {(serverStatus?.smtpUser || smtpForm.user) && (
+                  <div className="text-[10px] text-slate-400 font-mono flex items-center justify-between">
+                    <span>Cuenta de Envío:</span>
+                    <span className="text-slate-200 font-semibold">{serverStatus?.smtpUser || smtpForm.user}</span>
+                  </div>
+                )}
                 <div className="pt-2 border-t border-slate-800/80 text-[11px] text-slate-400">
                   <span>Hora Servidor (Arg): </span>
                   <strong className="text-slate-200">{serverStatus?.currentTimeArgentina || currentTime}</strong>
@@ -1382,43 +1409,43 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
               {/* Presets */}
               <div className="space-y-2">
                 <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block">
-                  Plantillas Rápidas de Configuración:
+                  Plantillas de Servidores Outlook / Corporativos:
                 </label>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   <button
                     type="button"
-                    onClick={() => handleApplyPreset('gmail')}
-                    className="flex items-center justify-center gap-2 p-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition-all hover:scale-[1.02]"
-                  >
-                    <Mail size={14} className="text-red-400" />
-                    Gmail / Google
-                  </button>
-
-                  <button
-                    type="button"
                     onClick={() => handleApplyPreset('office365')}
-                    className="flex items-center justify-center gap-2 p-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition-all hover:scale-[1.02]"
+                    className="flex items-center justify-center gap-2 p-2.5 rounded-xl bg-blue-950/60 hover:bg-blue-900/80 text-blue-200 text-xs font-bold border border-blue-700/60 transition-all hover:scale-[1.02] shadow-sm"
                   >
                     <Mail size={14} className="text-blue-400" />
-                    Microsoft 365
+                    Microsoft 365 (Corp)
                   </button>
 
                   <button
                     type="button"
-                    onClick={() => handleApplyPreset('brevo')}
+                    onClick={() => handleApplyPreset('outlook_personal')}
+                    className="flex items-center justify-center gap-2 p-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition-all hover:scale-[1.02]"
+                  >
+                    <Mail size={14} className="text-sky-400" />
+                    Outlook / Hotmail
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleApplyPreset('calico_custom')}
                     className="flex items-center justify-center gap-2 p-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition-all hover:scale-[1.02]"
                   >
                     <Mail size={14} className="text-emerald-400" />
-                    Brevo (Sendinblue)
+                    Servidor Calico S.A.
                   </button>
 
                   <button
                     type="button"
-                    onClick={() => handleApplyPreset('sendgrid')}
+                    onClick={() => handleApplyPreset('exchange')}
                     className="flex items-center justify-center gap-2 p-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition-all hover:scale-[1.02]"
                   >
                     <Mail size={14} className="text-indigo-400" />
-                    SendGrid
+                    Exchange Relay
                   </button>
                 </div>
               </div>
@@ -1437,8 +1464,8 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
                         isSmtpDirtyRef.current = true;
                         setSmtpForm(prev => ({ ...prev, host: e.target.value }));
                       }}
-                      placeholder="ej. smtp.gmail.com o mail.calico.com.ar"
-                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500"
+                      placeholder="ej. smtp.office365.com o mail.calico-sa.com.ar"
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500 font-mono"
                       required
                     />
                   </div>
@@ -1464,7 +1491,7 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-1.5">
                     <label className="text-xs font-bold text-slate-300">
-                      Usuario / Correo de Envío <span className="text-red-400">*</span>
+                      Usuario / Correo de Outlook <span className="text-red-400">*</span>
                     </label>
                     <input
                       type="text"
@@ -1473,8 +1500,8 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
                         isSmtpDirtyRef.current = true;
                         setSmtpForm(prev => ({ ...prev, user: e.target.value }));
                       }}
-                      placeholder="ej. hugofsir@gmail.com"
-                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500"
+                      placeholder="ej. hsir@calico-sa.com.ar"
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500 font-mono"
                       required
                     />
                   </div>
@@ -1483,7 +1510,7 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
                     <div className="flex items-center justify-between">
                       <label className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
                         <Lock size={12} className="text-emerald-400" />
-                        Contraseña / App Password <span className="text-red-400">*</span>
+                        Contraseña de Outlook / Microsoft <span className="text-red-400">*</span>
                       </label>
                       {smtpForm.hasPassword && (
                         <span className="text-[10px] text-emerald-400 font-mono font-bold">
@@ -1498,7 +1525,7 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
                         isSmtpDirtyRef.current = true;
                         setSmtpForm(prev => ({ ...prev, pass: e.target.value }));
                       }}
-                      placeholder={smtpForm.hasPassword ? '•••••••••••••••• (dejar vacío para mantener)' : 'Ingresa la contraseña o App Password'}
+                      placeholder={smtpForm.hasPassword ? '•••••••••••••••• (dejar vacío para mantener la actual)' : 'Ingresa tu contraseña de Outlook o App Password'}
                       className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500"
                     />
                   </div>
@@ -1532,8 +1559,8 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
                         isSmtpDirtyRef.current = true;
                         setSmtpForm(prev => ({ ...prev, fromEmail: e.target.value }));
                       }}
-                      placeholder="ej. reportes@calico.com.ar (opcional)"
-                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500"
+                      placeholder="ej. hsir@calico-sa.com.ar (opcional)"
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500 font-mono"
                     />
                   </div>
                 </div>
@@ -1542,7 +1569,7 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
                   <button
                     type="submit"
                     disabled={isSavingSmtp}
-                    className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-6 py-3 rounded-2xl text-sm shadow-lg shadow-emerald-950/40 transition-all disabled:opacity-50"
+                    className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white font-bold px-6 py-3 rounded-2xl text-sm shadow-lg shadow-blue-950/40 transition-all disabled:opacity-50"
                   >
                     {isSavingSmtp ? (
                       <RefreshCw size={16} className="animate-spin" />
@@ -1553,13 +1580,13 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
                   </button>
 
                   <span className="text-xs text-slate-400 font-mono">
-                    Puerto seguro: {smtpForm.port === 465 ? 'SSL (465)' : 'STARTTLS (587)'}
+                    Protocolo: {smtpForm.port === 465 ? 'SSL (465)' : 'STARTTLS (587)'}
                   </span>
                 </div>
               </form>
             </div>
 
-            {/* Right 1 Col: Test Email & Gmail Guidance */}
+            {/* Right 1 Col: Test Email & Outlook Guidance */}
             <div className="space-y-6">
               
               {/* Test Email Card */}
@@ -1569,7 +1596,7 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
                   Probar Envío de Correo Ahora
                 </h4>
                 <p className="text-xs text-slate-400">
-                  Envía un correo de verificación en tiempo real para confirmar que el servidor puede despachar mensajes con éxito.
+                  Envía un correo de verificación en tiempo real para confirmar que el servidor despacha mensajes y adjuntos por Outlook correctamente.
                 </p>
 
                 <div className="space-y-2">
@@ -1580,8 +1607,8 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
                     type="email"
                     value={testEmailTo}
                     onChange={(e) => setTestEmailTo(e.target.value)}
-                    placeholder="tu-correo@gmail.com"
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                    placeholder="hsir@calico-sa.com.ar"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2 text-sm text-white focus:outline-none focus:border-blue-500 font-mono"
                   />
                 </div>
 
@@ -1614,22 +1641,23 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
                 )}
               </div>
 
-              {/* Gmail App Password Helper */}
-              <div className="bg-slate-900/60 rounded-3xl p-6 border border-slate-800 space-y-3">
-                <h5 className="text-xs font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+              {/* Outlook / Microsoft 365 Guidance */}
+              <div className="bg-slate-900/80 rounded-3xl p-6 border border-slate-800 space-y-3">
+                <h5 className="text-xs font-bold text-blue-400 uppercase tracking-wider flex items-center gap-1.5">
                   <HelpCircle size={14} />
-                  ¿Usas cuenta de Gmail?
+                  Configuración para Outlook / Microsoft 365
                 </h5>
-                <div className="text-xs text-slate-300 space-y-2 leading-relaxed">
-                  <p>
-                    Google requiere una <strong>Contraseña de Aplicación de 16 caracteres</strong> en lugar de tu contraseña habitual:
-                  </p>
-                  <ol className="list-decimal list-inside space-y-1 text-slate-400 text-[11px]">
-                    <li>Ve a <strong>myaccount.google.com/security</strong></li>
-                    <li>Activa la <em>Verificación en 2 pasos</em></li>
-                    <li>Busca <strong>Contraseñas de aplicaciones</strong></li>
-                    <li>Crea una llamada "Calico Agentes" y copia el código de 16 letras en el campo Contraseña.</li>
-                  </ol>
+                <div className="text-xs text-slate-300 space-y-2.5 leading-relaxed">
+                  <div className="p-3 bg-slate-950 rounded-xl border border-slate-800/80 text-[11px] font-mono space-y-1">
+                    <p className="text-slate-400">Host: <span className="text-blue-300 font-bold">smtp.office365.com</span></p>
+                    <p className="text-slate-400">Puerto: <span className="text-blue-300 font-bold">587 (STARTTLS)</span></p>
+                    <p className="text-slate-400">Usuario: <span className="text-slate-200 font-bold">hsir@calico-sa.com.ar</span></p>
+                  </div>
+                  <ul className="list-disc list-inside space-y-1 text-slate-400 text-[11px]">
+                    <li>Usa tu cuenta de Outlook / Microsoft 365 asignada.</li>
+                    <li>Los correos enviados automáticamente por el servidor <strong>incluyen el archivo Excel adjunto</strong> correspondiente.</li>
+                    <li>Si tu organización utiliza autenticación en 2 pasos o MFA, puedes generar una <em>Contraseña de Aplicación</em> en la configuración de seguridad de Microsoft.</li>
+                  </ul>
                 </div>
               </div>
 
@@ -2340,20 +2368,41 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
             {/* Action buttons */}
             <div className="space-y-3">
               {executionResult.agent.recipients && executionResult.agent.recipients.length > 0 && (
-                <button
-                  onClick={() => triggerMailto(
-                    executionResult.agent.recipients, 
-                    executionResult.fileResult.emailSubject, 
-                    executionResult.fileResult.emailBody
-                  )}
-                  className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-2xl shadow-lg shadow-emerald-950/40 transition-all flex items-center justify-center gap-2 text-sm"
-                >
-                  <Mail size={18} />
-                  Abrir Cliente de Correo con Destinatarios y Resumen
-                </button>
+                <div className="space-y-2">
+                  <button
+                    onClick={() => handleExecuteAgentOnServer(executionResult.agent)}
+                    disabled={isExecutingServerAgent === executionResult.agent.id}
+                    className="w-full py-3.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold rounded-2xl shadow-lg shadow-blue-950/50 transition-all flex items-center justify-center gap-2 text-sm disabled:opacity-50 hover:scale-[1.01]"
+                  >
+                    {isExecutingServerAgent === executionResult.agent.id ? (
+                      <RefreshCw size={18} className="animate-spin" />
+                    ) : (
+                      <Send size={18} />
+                    )}
+                    {isExecutingServerAgent === executionResult.agent.id 
+                      ? 'Despachando Correo con Excel Adjunto...' 
+                      : '⚡ Enviar Correo con Archivo Excel Adjunto (Servidor 24/7)'}
+                  </button>
+
+                  <button
+                    onClick={() => triggerMailto(
+                      executionResult.agent.recipients, 
+                      executionResult.fileResult.emailSubject, 
+                      executionResult.fileResult.emailBody
+                    )}
+                    className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 font-semibold rounded-2xl transition-all flex items-center justify-center gap-2 text-xs"
+                  >
+                    <Mail size={15} className="text-blue-400" />
+                    Abrir Borrador en Outlook (El archivo ya está descargado en tu equipo)
+                  </button>
+
+                  <p className="text-[11px] text-slate-400 text-center px-2 leading-relaxed">
+                    💡 <strong>Nota de adjuntos:</strong> El botón <span className="text-blue-300 font-semibold">⚡ Enviar Correo</span> adjunta el archivo Excel automáticamente desde el servidor. Si abres Outlook localmente con el borrador, adjunta el archivo <span className="text-emerald-400 font-mono font-semibold">{executionResult.fileResult.fileName}</span> descargado en tu carpeta de Descargas.
+                  </p>
+                </div>
               )}
 
-              <div className="flex gap-3">
+              <div className="flex gap-3 pt-1">
                 <button
                   onClick={() => handleCopySummary(executionResult.fileResult.emailBody)}
                   className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold transition-all flex items-center justify-center gap-1.5"

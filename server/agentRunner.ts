@@ -21,6 +21,8 @@ import { AgentSchedule, AgentLog } from '../src/types';
 // Load Firebase Config
 let db: any = null;
 
+const SMTP_LOCAL_FILE = path.join(process.cwd(), 'smtp_config.json');
+
 try {
   const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
   if (fs.existsSync(configPath)) {
@@ -52,12 +54,26 @@ let lastSMTPFetchTime = 0;
 
 export async function getSMTPConfig(): Promise<SMTPConfig> {
   const now = Date.now();
-  // Refresh cache every 30 seconds
-  if (cachedSMTPConfig && (now - lastSMTPFetchTime < 30000)) {
+  // Refresh cache every 15 seconds
+  if (cachedSMTPConfig && (now - lastSMTPFetchTime < 15000) && cachedSMTPConfig.host && cachedSMTPConfig.user) {
     return cachedSMTPConfig;
   }
 
-  // 1. Try to read from Firestore
+  let resolvedConfig: Partial<SMTPConfig> = {};
+
+  // 1. Try to read from local file first (fastest and resilient)
+  try {
+    if (fs.existsSync(SMTP_LOCAL_FILE)) {
+      const fileData = JSON.parse(fs.readFileSync(SMTP_LOCAL_FILE, 'utf8'));
+      if (fileData.host && fileData.user) {
+        resolvedConfig = { ...fileData };
+      }
+    }
+  } catch (err) {
+    console.warn('[Server Agent Runner] Error leyendo smtp_config.json:', err);
+  }
+
+  // 2. Try to read from Firestore to sync
   if (db) {
     try {
       const docRef = doc(db, 'system_settings', 'smtp_config');
@@ -65,9 +81,11 @@ export async function getSMTPConfig(): Promise<SMTPConfig> {
       if (snap.exists()) {
         const data = snap.data() as SMTPConfig;
         if (data.host && data.user) {
-          cachedSMTPConfig = data;
-          lastSMTPFetchTime = now;
-          return data;
+          resolvedConfig = {
+            ...resolvedConfig,
+            ...data,
+            pass: data.pass || resolvedConfig.pass || ''
+          };
         }
       }
     } catch (e) {
@@ -75,33 +93,47 @@ export async function getSMTPConfig(): Promise<SMTPConfig> {
     }
   }
 
-  // 2. Fallback to process.env variables
-  const envConfig: SMTPConfig = {
-    host: process.env.SMTP_HOST || '',
-    port: parseInt(process.env.SMTP_PORT || '587', 10),
-    secure: process.env.SMTP_SECURE === 'true' || process.env.SMTP_PORT === '465',
-    user: process.env.SMTP_USER || '',
-    pass: process.env.SMTP_PASS || '',
-    fromName: process.env.SMTP_FROM ? process.env.SMTP_FROM.split('<')[0]?.trim() : 'Calico S.A. Automatizaciones',
-    fromEmail: process.env.SMTP_USER || 'notificaciones@calico.com',
-    is_active: !!(process.env.SMTP_HOST && process.env.SMTP_USER)
+  // 3. Fallback to process.env variables if still missing fields
+  const finalConfig: SMTPConfig = {
+    host: resolvedConfig.host || process.env.SMTP_HOST || '',
+    port: resolvedConfig.port || parseInt(process.env.SMTP_PORT || '587', 10),
+    secure: resolvedConfig.secure ?? (process.env.SMTP_SECURE === 'true' || process.env.SMTP_PORT === '465'),
+    user: resolvedConfig.user || process.env.SMTP_USER || '',
+    pass: resolvedConfig.pass || process.env.SMTP_PASS || '',
+    fromName: resolvedConfig.fromName || (process.env.SMTP_FROM ? process.env.SMTP_FROM.split('<')[0]?.trim() : 'Calico S.A. Automatizaciones'),
+    fromEmail: resolvedConfig.fromEmail || resolvedConfig.user || process.env.SMTP_USER || 'notificaciones@calico.com',
+    is_active: !!(resolvedConfig.host || process.env.SMTP_HOST)
   };
 
-  cachedSMTPConfig = envConfig;
+  cachedSMTPConfig = finalConfig;
   lastSMTPFetchTime = now;
-  return envConfig;
+  return finalConfig;
 }
 
 export async function saveSMTPConfig(config: SMTPConfig): Promise<void> {
   cachedSMTPConfig = config;
   lastSMTPFetchTime = Date.now();
+
+  // 1. Save to local JSON file
+  try {
+    fs.writeFileSync(SMTP_LOCAL_FILE, JSON.stringify(config, null, 2), 'utf8');
+    console.log('[Server Agent Runner] Configuración SMTP guardada en smtp_config.json');
+  } catch (fileErr) {
+    console.error('[Server Agent Runner] Error guardando en smtp_config.json:', fileErr);
+  }
+
+  // 2. Save to Firestore
   if (db) {
-    const docRef = doc(db, 'system_settings', 'smtp_config');
-    await setDoc(docRef, {
-      ...config,
-      updated_at: new Date().toISOString()
-    }, { merge: true });
-    console.log('[Server Agent Runner] Configuración SMTP guardada con éxito.');
+    try {
+      const docRef = doc(db, 'system_settings', 'smtp_config');
+      await setDoc(docRef, {
+        ...config,
+        updated_at: new Date().toISOString()
+      }, { merge: true });
+      console.log('[Server Agent Runner] Configuración SMTP guardada en Firestore.');
+    } catch (dbErr) {
+      console.error('[Server Agent Runner] Error guardando en Firestore:', dbErr);
+    }
   }
 }
 
@@ -126,7 +158,21 @@ export function createTransporter(config: SMTPConfig) {
 
 export async function sendTestEmail(toEmail: string, customConfig?: Partial<SMTPConfig>) {
   const baseConfig = await getSMTPConfig();
-  const config: SMTPConfig = { ...baseConfig, ...customConfig };
+  
+  const effectivePass = (customConfig?.pass && customConfig.pass !== '••••••••••••••••')
+    ? customConfig.pass.trim()
+    : baseConfig.pass;
+
+  const config: SMTPConfig = {
+    host: (customConfig?.host || baseConfig.host || '').trim(),
+    port: customConfig?.port || baseConfig.port || 587,
+    secure: customConfig?.secure ?? baseConfig.secure ?? false,
+    user: (customConfig?.user || baseConfig.user || '').trim(),
+    pass: effectivePass,
+    fromName: (customConfig?.fromName || baseConfig.fromName || 'Calico S.A. Automatizaciones').trim(),
+    fromEmail: (customConfig?.fromEmail || customConfig?.user || baseConfig.fromEmail || baseConfig.user || '').trim(),
+    is_active: true
+  };
 
   const transporter = createTransporter(config);
 
@@ -138,22 +184,22 @@ export async function sendTestEmail(toEmail: string, customConfig?: Partial<SMTP
     from: senderAddress,
     to: toEmail,
     subject: `✅ [PRUEBA EXITOSA] Servidor de Automatizaciones Calico S.A. - ${new Date().toLocaleTimeString('es-AR')}`,
-    text: `Hola,\n\nEste es un correo de prueba enviado por el servidor autónomo 24/7 de Calico S.A.\n\nLa conexión SMTP con el servidor ${config.host} funciona correctamente y está lista para el envío de informes automáticos programados aunque la aplicación web esté cerrada.\n\nFecha y hora del servidor: ${new Date().toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' })}`,
+    text: `Hola,\n\nEste es un correo de prueba enviado por el servidor autónomo 24/7 de Calico S.A. desde Outlook / Servidor SMTP.\n\nLa conexión SMTP con el servidor ${config.host} funciona correctamente y está lista para el envío de informes automáticos programados con archivos Excel adjuntos.\n\nFecha y hora del servidor: ${new Date().toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' })}`,
     html: `
       <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; background: #0f172a; color: #e2e8f0; border-radius: 16px; border: 1px solid #1e293b;">
         <div style="text-align: center; margin-bottom: 24px;">
           <h1 style="color: #10b981; font-size: 22px; margin: 0;">Calico S.A. • Motor de Agentes 24/7</h1>
-          <p style="color: #94a3b8; font-size: 14px; margin-top: 4px;">Prueba de Conectividad SMTP Exitosa</p>
+          <p style="color: #94a3b8; font-size: 14px; margin-top: 4px;">Prueba de Conectividad Outlook / SMTP Exitosa</p>
         </div>
         <div style="background: #1e293b; padding: 20px; border-radius: 12px; border: 1px solid #334155; margin-bottom: 20px;">
           <p style="margin: 0 0 12px 0; font-size: 15px; line-height: 1.5;">
-            <strong>¡Excelente!</strong> El servidor en la nube ha establecido comunicación exitosa con el proveedor de correo (<strong>${config.host}</strong>).
+            <strong>¡Excelente!</strong> El servidor en la nube ha establecido comunicación exitosa con el proveedor de correo Outlook / Exchange (<strong>${config.host}</strong>).
           </p>
           <ul style="margin: 0; padding-left: 20px; font-size: 13px; color: #cbd5e1; line-height: 1.8;">
             <li><strong>Emisor:</strong> ${senderAddress}</li>
             <li><strong>Destinatario de Prueba:</strong> ${toEmail}</li>
             <li><strong>Hora de Servidor (Arg):</strong> ${new Date().toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' })}</li>
-            <li><strong>Modo Autónomo:</strong> Activo (los correos se enviarán puntualmente sin necesidad de tener la app abierta)</li>
+            <li><strong>Modo Autónomo:</strong> Activo (los correos se enviarán puntualmente con sus archivos Excel adjuntos)</li>
           </ul>
         </div>
         <p style="font-size: 12px; color: #64748b; text-align: center; margin: 0;">
@@ -163,12 +209,26 @@ export async function sendTestEmail(toEmail: string, customConfig?: Partial<SMTP
     `
   };
 
-  const result = await transporter.sendMail(mailOptions);
-  return {
-    success: true,
-    messageId: result.messageId,
-    message: `Correo de prueba enviado satisfactoriamente a ${toEmail}`
-  };
+  try {
+    const result = await transporter.sendMail(mailOptions);
+    return {
+      success: true,
+      messageId: result.messageId,
+      message: `Correo de prueba enviado satisfactoriamente a ${toEmail}`
+    };
+  } catch (err: any) {
+    let friendly = err.message || 'Error desconocido al conectar con el servidor SMTP';
+    if (friendly.includes('535') || friendly.includes('BadCredentials') || friendly.includes('Authentication unsuccessful')) {
+      if (config.host.includes('office365') || config.host.includes('outlook')) {
+        friendly = 'Error de Autenticación de Outlook / Office 365: Verifica que el usuario y la contraseña sean correctos. En cuentas corporativas de Microsoft 365 con autenticación multifactor (MFA), es necesario usar una Contraseña de Aplicación de Microsoft o activar "SMTP AUTH" en el Centro de Administración de Office 365.';
+      } else {
+        friendly = 'Usuario o contraseña SMTP incorrectos. Verifica las credenciales configuradas.';
+      }
+    } else if (friendly.includes('ETIMEDOUT') || friendly.includes('ECONNREFUSED')) {
+      friendly = `No se pudo conectar a ${config.host}:${config.port}. Verifica si el host y puerto son correctos (ej. puerto 587 con STARTTLS).`;
+    }
+    throw new Error(friendly);
+  }
 }
 
 export async function loadAllDatasets(): Promise<AppDatasets> {
