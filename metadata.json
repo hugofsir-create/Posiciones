@@ -1,5 +1,6 @@
 {
   "name": "Copy of Stock Posiciones Pro",
-  "description": "Registro diario de kilos en stock con informes quincenales, semanales y mensuales detallados.",
-  "requestFramePermissions": []
+  "description": "Registro diario de kilos en stock con informes quincenales, semanales y mensuales detallados y agentes de automatización 24/7.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

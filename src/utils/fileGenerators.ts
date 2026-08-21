@@ -26,6 +26,7 @@ export interface GeneratedFileResult {
   summaryText: string;
   emailSubject: string;
   emailBody: string;
+  rawBytes?: Uint8Array;
 }
 
 export interface AppDatasets {
@@ -159,6 +160,7 @@ export function generateAgentFile(agent: AgentSchedule, datasets: AppDatasets): 
       XLSX.utils.book_append_sheet(wb, wsSummary, "Resumen General");
 
       const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+      const rawBytes = new Uint8Array(wbout as ArrayBuffer);
       const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       const fileName = `Reporte_Abastecimientos_${timestampStr}.xlsx`;
 
@@ -187,6 +189,7 @@ export function generateAgentFile(agent: AgentSchedule, datasets: AppDatasets): 
       return {
         fileName,
         blob,
+        rawBytes,
         mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         itemCount: filtered.length,
         summaryText,
@@ -218,6 +221,7 @@ export function generateAgentFile(agent: AgentSchedule, datasets: AppDatasets): 
       ], { origin: -1 });
 
       const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+      const rawBytes = new Uint8Array(wbout as ArrayBuffer);
       const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       const fileName = `Reporte_Stock_Kilos_${timestampStr}.xlsx`;
       const summaryText = `${filtered.length} días de stock de kilos. Total: ${totalKilos.toLocaleString('es-AR')} kg (Promedio diario: ${avgKilos.toFixed(1)} kg).`;
@@ -227,6 +231,7 @@ export function generateAgentFile(agent: AgentSchedule, datasets: AppDatasets): 
       return {
         fileName,
         blob,
+        rawBytes,
         mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         itemCount: filtered.length,
         summaryText,
@@ -257,6 +262,7 @@ export function generateAgentFile(agent: AgentSchedule, datasets: AppDatasets): 
       ], { origin: -1 });
 
       const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+      const rawBytes = new Uint8Array(wbout as ArrayBuffer);
       const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       const fileName = `Reporte_Bianchi_Posiciones_${timestampStr}.xlsx`;
       const summaryText = `${filtered.length} días de posiciones Bodegas Bianchi. Promedio: ${avgPos.toFixed(1)} posiciones.`;
@@ -266,6 +272,7 @@ export function generateAgentFile(agent: AgentSchedule, datasets: AppDatasets): 
       return {
         fileName,
         blob,
+        rawBytes,
         mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         itemCount: filtered.length,
         summaryText,
@@ -296,6 +303,7 @@ export function generateAgentFile(agent: AgentSchedule, datasets: AppDatasets): 
       ], { origin: -1 });
 
       const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+      const rawBytes = new Uint8Array(wbout as ArrayBuffer);
       const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       const fileName = `Reporte_Cepas_Posiciones_${timestampStr}.xlsx`;
       const summaryText = `${filtered.length} días de posiciones Cepas. Promedio: ${avgPos.toFixed(1)} posiciones.`;
@@ -305,6 +313,7 @@ export function generateAgentFile(agent: AgentSchedule, datasets: AppDatasets): 
       return {
         fileName,
         blob,
+        rawBytes,
         mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         itemCount: filtered.length,
         summaryText,
@@ -335,6 +344,7 @@ export function generateAgentFile(agent: AgentSchedule, datasets: AppDatasets): 
       ], { origin: -1 });
 
       const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+      const rawBytes = new Uint8Array(wbout as ArrayBuffer);
       const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       const fileName = `Reporte_Escorihuela_Posiciones_${timestampStr}.xlsx`;
       const summaryText = `${filtered.length} días de posiciones Escorihuela Gascón. Promedio: ${avgPos.toFixed(1)} posiciones.`;
@@ -344,6 +354,7 @@ export function generateAgentFile(agent: AgentSchedule, datasets: AppDatasets): 
       return {
         fileName,
         blob,
+        rawBytes,
         mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         itemCount: filtered.length,
         summaryText,
@@ -374,6 +385,7 @@ export function generateAgentFile(agent: AgentSchedule, datasets: AppDatasets): 
       ], { origin: -1 });
 
       const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+      const rawBytes = new Uint8Array(wbout as ArrayBuffer);
       const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       const fileName = `Reporte_LaRural_Posiciones_${timestampStr}.xlsx`;
       const summaryText = `${filtered.length} días de posiciones La Rural (Rutini Wines). Promedio: ${avgPos.toFixed(1)} posiciones.`;
@@ -383,6 +395,7 @@ export function generateAgentFile(agent: AgentSchedule, datasets: AppDatasets): 
       return {
         fileName,
         blob,
+        rawBytes,
         mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         itemCount: filtered.length,
         summaryText,
@@ -466,6 +479,7 @@ export function generateAgentFile(agent: AgentSchedule, datasets: AppDatasets): 
       }
 
       const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+      const rawBytes = new Uint8Array(wbout as ArrayBuffer);
       const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       const fileName = `Reporte_Consolidado_Integral_${timestampStr}.xlsx`;
       const totalItems = datasets.records.length + datasets.palletRecords.length + datasets.cepasRecords.length + datasets.escorihuelaRecords.length + datasets.laRuralRecords.length + datasets.abastecimientos.length;
@@ -476,6 +490,7 @@ export function generateAgentFile(agent: AgentSchedule, datasets: AppDatasets): 
       return {
         fileName,
         blob,
+        rawBytes,
         mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         itemCount: totalItems,
         summaryText,
@@ -493,6 +508,7 @@ export function generateAgentFile(agent: AgentSchedule, datasets: AppDatasets): 
         agentName: agent.name
       };
       const jsonStr = JSON.stringify(backupData, null, 2);
+      const rawBytes = new TextEncoder().encode(jsonStr);
       const blob = new Blob([jsonStr], { type: 'application/json' });
       const fileName = `Backup_Completo_Sistema_${timestampStr}.json`;
       const totalItems = datasets.records.length + datasets.palletRecords.length + datasets.cepasRecords.length + datasets.escorihuelaRecords.length + datasets.laRuralRecords.length + datasets.abastecimientos.length;
@@ -503,6 +519,7 @@ export function generateAgentFile(agent: AgentSchedule, datasets: AppDatasets): 
       return {
         fileName,
         blob,
+        rawBytes,
         mimeType: 'application/json',
         itemCount: totalItems,
         summaryText,

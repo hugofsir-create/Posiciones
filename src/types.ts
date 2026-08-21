@@ -109,6 +109,7 @@ export type AgentFrequency =
   | 'weekly' 
   | 'fortnightly' 
   | 'monthly' 
+  | 'monthly_last_day'
   | 'custom_days';
 
 export type AgentDatePreset = 
@@ -126,15 +127,19 @@ export interface AgentSchedule {
   date_range_preset: AgentDatePreset;
   frequency: AgentFrequency;
   days_of_week?: number[]; // 0=Sunday, 1=Monday, ..., 6=Saturday
-  day_of_month?: number; // 1-31
+  day_of_month?: number | 'last_day'; // 1-31 or 'last_day'
+  monthly_mode?: 'last_day' | 'specific_day';
   time: string; // "08:00", "18:30"
   recipients: string[]; // Email addresses
   email_subject?: string;
   email_body?: string;
   auto_download: boolean;
   status: 'active' | 'paused';
+  is_active?: boolean;
   last_run_at?: string | null;
   last_run_date?: string | null;
+  last_run_status?: string | null;
+  total_runs?: number;
   created_at?: any;
 }
 

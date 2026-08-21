@@ -30,7 +30,14 @@ import {
   TrendingUp, 
   BellRing,
   Eye,
-  ExternalLink
+  ExternalLink,
+  Server,
+  Zap,
+  ShieldCheck,
+  Lock,
+  MailCheck,
+  HelpCircle,
+  Info
 } from 'lucide-react';
 import { 
   collection, 
@@ -147,18 +154,80 @@ const DAYS_OF_WEEK = [
 export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onShowNotification }) => {
   const [agents, setAgents] = useState<AgentSchedule[]>([]);
   const [logs, setLogs] = useState<AgentLog[]>([]);
-  const [activeSubTab, setActiveSubTab] = useState<'agents' | 'logs' | 'scheduler_status'>('agents');
+  const [activeSubTab, setActiveSubTab] = useState<'agents' | 'logs' | 'smtp_server'>('agents');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+
+  // Server & SMTP Status
+  const [serverStatus, setServerStatus] = useState<{
+    status: string;
+    mode: string;
+    currentTimeArgentina: string;
+    smtpConfigured: boolean;
+    smtpHost: string | null;
+    smtpUser: string | null;
+  } | null>(null);
+
+  const [smtpForm, setSmtpForm] = useState({
+    host: '',
+    port: 587,
+    secure: false,
+    user: '',
+    pass: '',
+    fromName: 'Calico S.A. Automatizaciones',
+    fromEmail: '',
+    hasPassword: false
+  });
+
+  const [testEmailTo, setTestEmailTo] = useState('hugofsir@gmail.com');
+  const [isTestingSmtp, setIsTestingSmtp] = useState(false);
+  const [isSavingSmtp, setIsSavingSmtp] = useState(false);
+  const [isExecutingServerAgent, setIsExecutingServerAgent] = useState<string | null>(null);
+  const [testEmailResult, setTestEmailResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  // Fetch Server & SMTP status
+  const fetchServerAndSMTP = async () => {
+    try {
+      const resStatus = await fetch('/api/agent/server-status');
+      if (resStatus.ok) {
+        const data = await resStatus.json();
+        setServerStatus(data);
+      }
+
+      const resSmtp = await fetch('/api/smtp/config');
+      if (resSmtp.ok) {
+        const data = await resSmtp.json();
+        setSmtpForm({
+          host: data.host || '',
+          port: data.port || 587,
+          secure: data.secure || false,
+          user: data.user || '',
+          pass: '',
+          fromName: data.fromName || 'Calico S.A. Automatizaciones',
+          fromEmail: data.fromEmail || '',
+          hasPassword: !!data.hasPassword
+        });
+      }
+    } catch (e) {
+      console.warn('Servidor local / API no disponible temporalmente:', e);
+    }
+  };
+
+  useEffect(() => {
+    fetchServerAndSMTP();
+    const interval = setInterval(fetchServerAndSMTP, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Form State
   const [formName, setFormName] = useState('');
   const [formFileType, setFormFileType] = useState<AgentFileType>('abastecimientos');
   const [formDatePreset, setFormDatePreset] = useState<AgentDatePreset>('all');
-  const [formFrequency, setFormFrequency] = useState<AgentFrequency>('daily');
+  const [formFrequency, setFormFrequency] = useState<AgentFrequency>('monthly');
+  const [formMonthlyMode, setFormMonthlyMode] = useState<'last_day' | 'specific_day'>('last_day');
   const [formDaysOfWeek, setFormDaysOfWeek] = useState<number[]>([1, 2, 3, 4, 5]);
-  const [formDayOfMonth, setFormDayOfMonth] = useState<number>(1);
+  const [formDayOfMonth, setFormDayOfMonth] = useState<number>(31);
   const [formTime, setFormTime] = useState<string>('08:00');
   const [formRecipients, setFormRecipients] = useState<string[]>([]);
   const [recipientInput, setRecipientInput] = useState<string>('');
@@ -219,6 +288,10 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
       const currentDayOfMonth = now.getDate();
       const currentTimeHM = format(now, 'HH:mm');
 
+      // Calculate the exact last day of the current month (28, 29, 30, or 31)
+      const totalDaysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+      const isLastDayOfMonth = currentDayOfMonth === totalDaysInMonth;
+
       // Check if we haven't already checked this minute
       if (lastCheckedMinuteRef.current !== currentMinuteStr) {
         lastCheckedMinuteRef.current = currentMinuteStr;
@@ -237,19 +310,45 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
               case 'weekdays':
                 shouldRun = currentDayOfWeek >= 1 && currentDayOfWeek <= 5;
                 break;
-              case 'weekly':
+              case 'weekly': {
                 const targetDay = (agent.days_of_week && agent.days_of_week.length > 0) ? agent.days_of_week[0] : 1;
                 shouldRun = currentDayOfWeek === targetDay;
                 break;
+              }
               case 'custom_days':
                 shouldRun = !!agent.days_of_week?.includes(currentDayOfWeek);
                 break;
               case 'fortnightly':
-                shouldRun = currentDayOfMonth === 1 || currentDayOfMonth === 16;
+                // Quincenal: Días 1 y 16, o día 1 y último día del mes
+                shouldRun = currentDayOfMonth === 1 || currentDayOfMonth === 16 || isLastDayOfMonth;
                 break;
-              case 'monthly':
-                shouldRun = currentDayOfMonth === (agent.day_of_month || 1);
+              case 'monthly_last_day':
+                // Always on the last calendar day of the month (28, 29, 30 or 31)
+                shouldRun = isLastDayOfMonth;
                 break;
+              case 'monthly': {
+                const isConfiguredForLastDay = 
+                  agent.monthly_mode === 'last_day' || 
+                  agent.day_of_month === 'last_day' || 
+                  agent.day_of_month === -1 || 
+                  agent.day_of_month === 31 ||
+                  !agent.day_of_month;
+
+                if (isConfiguredForLastDay) {
+                  // Must trigger on the last day regardless of 30, 31, 28 or 29 days
+                  shouldRun = isLastDayOfMonth;
+                } else {
+                  const targetDayNum = Number(agent.day_of_month);
+                  // If the current month has fewer days than targetDay (e.g. target is 31 in April, or 29/30 in Feb):
+                  // Execute on the last day of the month so it's never missed!
+                  if (targetDayNum >= totalDaysInMonth) {
+                    shouldRun = isLastDayOfMonth;
+                  } else {
+                    shouldRun = currentDayOfMonth === targetDayNum;
+                  }
+                }
+                break;
+              }
             }
           }
 
@@ -328,9 +427,10 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
     setFormName('');
     setFormFileType('abastecimientos');
     setFormDatePreset('all');
-    setFormFrequency('daily');
+    setFormFrequency('monthly');
+    setFormMonthlyMode('last_day');
     setFormDaysOfWeek([1, 2, 3, 4, 5]);
-    setFormDayOfMonth(1);
+    setFormDayOfMonth(31);
     setFormTime('08:00');
     setFormRecipients([]);
     setRecipientInput('');
@@ -348,9 +448,24 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
     setFormName(agent.name);
     setFormFileType(agent.file_type);
     setFormDatePreset(agent.date_range_preset);
-    setFormFrequency(agent.frequency);
+    setFormFrequency(agent.frequency === 'monthly_last_day' ? 'monthly' : agent.frequency);
+    
+    // Check if configured for last day of month
+    if (
+      agent.frequency === 'monthly_last_day' || 
+      agent.monthly_mode === 'last_day' || 
+      agent.day_of_month === 'last_day' || 
+      agent.day_of_month === 31 ||
+      (agent.frequency === 'monthly' && !agent.day_of_month)
+    ) {
+      setFormMonthlyMode('last_day');
+      setFormDayOfMonth(31);
+    } else {
+      setFormMonthlyMode(agent.monthly_mode || 'specific_day');
+      setFormDayOfMonth(typeof agent.day_of_month === 'number' ? agent.day_of_month : 1);
+    }
+
     setFormDaysOfWeek(agent.days_of_week || [1, 2, 3, 4, 5]);
-    setFormDayOfMonth(agent.day_of_month || 1);
     setFormTime(agent.time);
     setFormRecipients(agent.recipients || []);
     setRecipientInput('');
@@ -406,14 +521,17 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
 
     try {
       const selectedTypeInfo = FILE_TYPE_OPTIONS.find(o => o.id === formFileType);
+      const isLastDay = formFrequency === 'monthly_last_day' || (formFrequency === 'monthly' && formMonthlyMode === 'last_day');
+
       const agentData: Partial<AgentSchedule> = {
         name: formName.trim(),
         file_type: formFileType,
         file_format: selectedTypeInfo?.format || 'xlsx',
         date_range_preset: formDatePreset,
         frequency: formFrequency,
+        monthly_mode: formFrequency === 'monthly' ? formMonthlyMode : undefined,
+        day_of_month: formFrequency === 'monthly' ? (isLastDay ? 'last_day' : formDayOfMonth) : undefined,
         days_of_week: formDaysOfWeek,
-        day_of_month: formDayOfMonth,
         time: formTime,
         recipients: formRecipients.length > 0 ? formRecipients : (recipientInput.trim() ? [recipientInput.trim().toLowerCase()] : []),
         email_subject: formSubject.trim(),
@@ -498,6 +616,139 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
     setTimeout(() => setCopiedSummary(false), 2000);
   };
 
+  // Save SMTP Settings
+  const handleSaveSMTPConfig = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!smtpForm.host || !smtpForm.user) {
+      onShowNotification('Ingrese al menos el Servidor Host y Usuario SMTP', 'error');
+      return;
+    }
+
+    setIsSavingSmtp(true);
+    try {
+      const res = await fetch('/api/smtp/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(smtpForm)
+      });
+      const data = await res.json();
+      if (res.ok) {
+        onShowNotification('Configuración SMTP guardada con éxito en el servidor 24/7', 'success');
+        fetchServerAndSMTP();
+      } else {
+        onShowNotification(data.error || 'Error al guardar configuración SMTP', 'error');
+      }
+    } catch (err: any) {
+      onShowNotification('Error de conexión con el servidor: ' + err.message, 'error');
+    } finally {
+      setIsSavingSmtp(false);
+    }
+  };
+
+  // Send Test Email
+  const handleSendTestEmail = async () => {
+    if (!testEmailTo || !testEmailTo.includes('@')) {
+      onShowNotification('Ingrese un correo de destino válido para la prueba', 'error');
+      return;
+    }
+
+    setIsTestingSmtp(true);
+    setTestEmailResult(null);
+    try {
+      const res = await fetch('/api/smtp/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          toEmail: testEmailTo.trim(),
+          customConfig: smtpForm
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setTestEmailResult({ success: true, message: data.message });
+        onShowNotification(`¡Correo de prueba enviado con éxito a ${testEmailTo}!`, 'success');
+        fetchServerAndSMTP();
+      } else {
+        setTestEmailResult({ success: false, message: data.error || 'Error al enviar correo de prueba' });
+        onShowNotification(data.error || 'Error al enviar correo de prueba', 'error');
+      }
+    } catch (err: any) {
+      setTestEmailResult({ success: false, message: err.message });
+      onShowNotification('Error enviando prueba: ' + err.message, 'error');
+    } finally {
+      setIsTestingSmtp(false);
+    }
+  };
+
+  // Trigger agent execution directly on the server (sends email with Excel attachment)
+  const handleExecuteAgentOnServer = async (agent: AgentSchedule) => {
+    setIsExecutingServerAgent(agent.id);
+    try {
+      const res = await fetch(`/api/agent/run-now/${agent.id}`, {
+        method: 'POST'
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        onShowNotification(`Agente "${agent.name}" ejecutado en el servidor. ${data.emailSent ? 'Correo enviado con éxito.' : 'Archivo procesado.'}`, 'success');
+      } else {
+        onShowNotification(`Aviso: ${data.error || 'Error en ejecución de servidor'}`, 'error');
+      }
+    } catch (err: any) {
+      onShowNotification('Error conectando al servidor: ' + err.message, 'error');
+    } finally {
+      setIsExecutingServerAgent(null);
+    }
+  };
+
+  // Apply SMTP Presets
+  const handleApplyPreset = (preset: 'gmail' | 'office365' | 'brevo' | 'sendgrid') => {
+    switch (preset) {
+      case 'gmail':
+        setSmtpForm(prev => ({
+          ...prev,
+          host: 'smtp.gmail.com',
+          port: 587,
+          secure: false,
+          user: prev.user || 'hugofsir@gmail.com',
+          fromEmail: prev.fromEmail || prev.user || 'hugofsir@gmail.com',
+          fromName: prev.fromName || 'Calico S.A. Automatizaciones'
+        }));
+        onShowNotification('Plantilla Gmail aplicada. Recuerda usar una Contraseña de Aplicación de 16 letras de Google.', 'info');
+        break;
+      case 'office365':
+        setSmtpForm(prev => ({
+          ...prev,
+          host: 'smtp.office365.com',
+          port: 587,
+          secure: false,
+          fromName: prev.fromName || 'Calico S.A. Automatizaciones'
+        }));
+        onShowNotification('Plantilla Microsoft 365 / Outlook aplicada.', 'info');
+        break;
+      case 'brevo':
+        setSmtpForm(prev => ({
+          ...prev,
+          host: 'smtp-relay.brevo.com',
+          port: 587,
+          secure: false,
+          fromName: prev.fromName || 'Calico S.A. Automatizaciones'
+        }));
+        onShowNotification('Plantilla Brevo SMTP aplicada.', 'info');
+        break;
+      case 'sendgrid':
+        setSmtpForm(prev => ({
+          ...prev,
+          host: 'smtp.sendgrid.net',
+          port: 587,
+          secure: false,
+          user: 'apikey',
+          fromName: prev.fromName || 'Calico S.A. Automatizaciones'
+        }));
+        onShowNotification('Plantilla SendGrid aplicada (Usuario fijado en "apikey").', 'info');
+        break;
+    }
+  };
+
   // Calculate active agents count
   const activeCount = useMemo(() => agents.filter(a => a.status === 'active').length, [agents]);
 
@@ -547,9 +798,9 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
           </div>
         </div>
 
-        {/* Sub-Tabs: Agentes, Historial, Estado */}
+        {/* Sub-Tabs: Agentes, Historial, Servidor 24/7 */}
         <div className="mt-8 pt-6 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-4">
-          <div className="flex bg-slate-950 p-1.5 rounded-2xl border border-slate-800">
+          <div className="flex bg-slate-950 p-1.5 rounded-2xl border border-slate-800 flex-wrap gap-1">
             <button
               onClick={() => setActiveSubTab('agents')}
               className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
@@ -578,11 +829,32 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
               <History size={15} />
               Historial de Descargas & Envíos ({logs.length})
             </button>
+
+            <button
+              onClick={() => setActiveSubTab('smtp_server')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+                activeSubTab === 'smtp_server' 
+                  ? 'bg-emerald-600 text-white shadow-md' 
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Server size={15} />
+              Servidor 24/7 (Envío con App Cerrada)
+              {serverStatus?.smtpConfigured ? (
+                <span className="ml-1 px-1.5 py-0.5 text-[10px] rounded-full bg-emerald-950 text-emerald-300 border border-emerald-700/50">
+                  SMTP Listo
+                </span>
+              ) : (
+                <span className="ml-1 px-1.5 py-0.5 text-[10px] rounded-full bg-amber-950 text-amber-300 border border-amber-700/50">
+                  Configurar
+                </span>
+              )}
+            </button>
           </div>
 
-          <div className="text-xs text-slate-400 flex items-center gap-2">
-            <Sparkles size={14} className="text-amber-400" />
-            <span>Los agentes se ejecutan automáticamente en segundo plano cuando el navegador está abierto.</span>
+          <div className="text-xs text-emerald-400 font-medium flex items-center gap-2 bg-emerald-950/40 px-3 py-1.5 rounded-xl border border-emerald-800/40">
+            <Zap size={14} className="text-amber-400 animate-bounce" />
+            <span>Motor 24/7 en Servidor Activo: Los correos se envían incluso con la app cerrada.</span>
           </div>
         </div>
       </div>
@@ -673,12 +945,23 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
                             <Calendar size={14} className="text-blue-400" />
                             Frecuencia:
                           </span>
-                          <span className="font-semibold text-slate-200 capitalize">
+                          <span className="font-semibold text-slate-200">
                             {agent.frequency === 'daily' && 'Diario (L-D)'}
                             {agent.frequency === 'weekdays' && 'Días Hábiles (L-V)'}
-                            {agent.frequency === 'weekly' && 'Semanal'}
+                            {agent.frequency === 'weekly' && (
+                              `Semanal (${DAYS_OF_WEEK.find(dw => dw.id === ((agent.days_of_week && agent.days_of_week[0]) ?? 1))?.name || 'Lunes'})`
+                            )}
                             {agent.frequency === 'fortnightly' && 'Quincenal (1 y 16)'}
-                            {agent.frequency === 'monthly' && `Mensual (Día ${agent.day_of_month || 1})`}
+                            {agent.frequency === 'monthly_last_day' && (
+                              <span className="text-emerald-400 font-bold">Fin de Mes (Último Día: 28/30/31)</span>
+                            )}
+                            {agent.frequency === 'monthly' && (
+                              (agent.monthly_mode === 'last_day' || agent.day_of_month === 'last_day' || agent.day_of_month === 31 || !agent.day_of_month) ? (
+                                <span className="text-emerald-400 font-bold">Fin de Mes (Último Día: 28/30/31)</span>
+                              ) : (
+                                `Mensual (Día ${agent.day_of_month})`
+                              )
+                            )}
                             {agent.frequency === 'custom_days' && (
                               <span className="flex gap-1">
                                 {agent.days_of_week?.map(d => (
@@ -737,35 +1020,60 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
                     </div>
 
                     {/* Actions bar */}
-                    <div className="pt-4 border-t border-slate-800/80 flex items-center justify-between gap-2">
-                      <button
-                        onClick={() => executeAgentTask(agent, 'manual')}
-                        disabled={isRunningThis}
-                        className="flex-1 flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2.5 px-3 rounded-xl text-xs shadow-md shadow-emerald-950/30 transition-all disabled:opacity-50"
-                      >
-                        {isRunningThis ? (
-                          <RefreshCw size={14} className="animate-spin" />
-                        ) : (
-                          <Play size={14} />
-                        )}
-                        {isRunningThis ? 'Generando...' : 'Ejecutar Ahora'}
-                      </button>
+                    <div className="pt-4 border-t border-slate-800/80 flex flex-col gap-2">
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          onClick={() => handleExecuteAgentOnServer(agent)}
+                          disabled={isExecutingServerAgent === agent.id}
+                          className="flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 px-2.5 rounded-xl text-[11px] shadow-md shadow-blue-950/30 transition-all disabled:opacity-50"
+                          title="Genera el archivo en el servidor y lo envía por correo electrónico inmediatamente"
+                        >
+                          {isExecutingServerAgent === agent.id ? (
+                            <RefreshCw size={13} className="animate-spin" />
+                          ) : (
+                            <Send size={13} />
+                          )}
+                          {isExecutingServerAgent === agent.id ? 'Enviando...' : '⚡ Enviar Correo'}
+                        </button>
 
-                      <button
-                        onClick={() => handleOpenEditModal(agent)}
-                        className="p-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl transition-all"
-                        title="Editar Agente"
-                      >
-                        <Edit3 size={15} />
-                      </button>
+                        <button
+                          onClick={() => executeAgentTask(agent, 'manual')}
+                          disabled={isRunningThis}
+                          className="flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 px-2.5 rounded-xl text-[11px] shadow-md shadow-emerald-950/30 transition-all disabled:opacity-50"
+                          title="Descargar archivo directamente en tu navegador"
+                        >
+                          {isRunningThis ? (
+                            <RefreshCw size={13} className="animate-spin" />
+                          ) : (
+                            <Download size={13} />
+                          )}
+                          {isRunningThis ? 'Generando...' : 'Descargar'}
+                        </button>
+                      </div>
 
-                      <button
-                        onClick={() => handleDeleteAgent(agent.id, agent.name)}
-                        className="p-2.5 bg-slate-800 hover:bg-red-950 hover:text-red-400 text-slate-400 rounded-xl transition-all"
-                        title="Eliminar Agente"
-                      >
-                        <Trash2 size={15} />
-                      </button>
+                      <div className="flex items-center justify-between gap-2 pt-1">
+                        <span className="text-[10px] text-slate-500 font-mono flex items-center gap-1">
+                          <Server size={11} className="text-emerald-400" /> Servidor 24/7
+                        </span>
+
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => handleOpenEditModal(agent)}
+                            className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg transition-all text-xs"
+                            title="Editar Agente"
+                          >
+                            <Edit3 size={13} />
+                          </button>
+
+                          <button
+                            onClick={() => handleDeleteAgent(agent.id, agent.name)}
+                            className="p-1.5 bg-slate-800 hover:bg-red-950 hover:text-red-400 text-slate-400 rounded-lg transition-all text-xs"
+                            title="Eliminar Agente"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 );
@@ -872,6 +1180,325 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
               </table>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Subtab Content: 24/7 SMTP Server Configuration */}
+      {activeSubTab === 'smtp_server' && (
+        <div className="space-y-8 animate-in fade-in duration-200">
+          
+          {/* Server 24/7 Status Header Card */}
+          <div className="bg-gradient-to-br from-slate-900 via-slate-900 to-blue-950/40 rounded-3xl p-6 md:p-8 border border-blue-500/20 shadow-xl relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-80 h-80 bg-blue-500/5 rounded-full blur-3xl pointer-events-none" />
+            
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 relative z-10">
+              <div className="space-y-2">
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/30 text-blue-400 text-xs font-semibold">
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
+                  </span>
+                  Servidor Autónomo 24/7 en la Nube
+                </div>
+
+                <h3 className="text-xl md:text-2xl font-black text-white flex items-center gap-3">
+                  <Server className="text-blue-400" />
+                  Envío Autónomo de Correos (Con la Aplicación Cerrada)
+                </h3>
+                <p className="text-slate-300 text-sm max-w-3xl leading-relaxed">
+                  El servidor Node.js en la nube monitorea continuamente los horarios y fin de mes configurados en tus agentes. Configura las credenciales SMTP de tu cuenta (Gmail, Outlook, Brevo o Calico) para que los correos con los archivos Excel adjuntos se envíen puntualmente <strong>aunque tengas la computadora apagada o el navegador cerrado</strong>.
+                </p>
+              </div>
+
+              {/* Status Indicator Widget */}
+              <div className="bg-slate-950/90 p-4 rounded-2xl border border-slate-800 shrink-0 space-y-2 min-w-[260px]">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-slate-400 font-mono">ESTADO MOTOR:</span>
+                  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800/50 text-[11px] font-bold">
+                    <CheckCircle2 size={12} /> ONLINE 24/7
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-slate-400 font-mono">ESTADO SMTP:</span>
+                  <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                    serverStatus?.smtpConfigured
+                      ? 'bg-emerald-950 text-emerald-400 border border-emerald-800/50'
+                      : 'bg-amber-950 text-amber-400 border border-amber-800/50'
+                  }`}>
+                    {serverStatus?.smtpConfigured ? 'Conectado' : 'Sin Configurar'}
+                  </span>
+                </div>
+                <div className="pt-2 border-t border-slate-800/80 text-[11px] text-slate-400">
+                  <span>Hora Servidor (Arg): </span>
+                  <strong className="text-slate-200">{serverStatus?.currentTimeArgentina || currentTime}</strong>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Quick Presets & Form Grid */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            
+            {/* Left 2 Cols: Form */}
+            <div className="lg:col-span-2 bg-slate-900 rounded-3xl p-6 md:p-8 border border-slate-800 shadow-xl space-y-6">
+              
+              <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+                <div>
+                  <h4 className="text-base font-bold text-white flex items-center gap-2">
+                    <Settings className="text-emerald-400" size={18} />
+                    Configuración de Servidor de Correo (SMTP)
+                  </h4>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Selecciona una plantilla rápida o completa los datos de tu servidor.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <ShieldCheck size={18} className="text-emerald-400" />
+                  <span className="text-[11px] text-emerald-400 font-semibold">Cifrado Seguro TLS</span>
+                </div>
+              </div>
+
+              {/* Presets */}
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block">
+                  Plantillas Rápidas de Configuración:
+                </label>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleApplyPreset('gmail')}
+                    className="flex items-center justify-center gap-2 p-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition-all hover:scale-[1.02]"
+                  >
+                    <Mail size={14} className="text-red-400" />
+                    Gmail / Google
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleApplyPreset('office365')}
+                    className="flex items-center justify-center gap-2 p-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition-all hover:scale-[1.02]"
+                  >
+                    <Mail size={14} className="text-blue-400" />
+                    Microsoft 365
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleApplyPreset('brevo')}
+                    className="flex items-center justify-center gap-2 p-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition-all hover:scale-[1.02]"
+                  >
+                    <Mail size={14} className="text-emerald-400" />
+                    Brevo (Sendinblue)
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleApplyPreset('sendgrid')}
+                    className="flex items-center justify-center gap-2 p-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition-all hover:scale-[1.02]"
+                  >
+                    <Mail size={14} className="text-indigo-400" />
+                    SendGrid
+                  </button>
+                </div>
+              </div>
+
+              {/* Form inputs */}
+              <form onSubmit={handleSaveSMTPConfig} className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="sm:col-span-2 space-y-1.5">
+                    <label className="text-xs font-bold text-slate-300">
+                      Servidor Host SMTP <span className="text-red-400">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={smtpForm.host}
+                      onChange={(e) => setSmtpForm({ ...smtpForm, host: e.target.value })}
+                      placeholder="ej. smtp.gmail.com o mail.calico.com.ar"
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500"
+                      required
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-300">
+                      Puerto SMTP <span className="text-red-400">*</span>
+                    </label>
+                    <input
+                      type="number"
+                      value={smtpForm.port}
+                      onChange={(e) => setSmtpForm({ ...smtpForm, port: parseInt(e.target.value) || 587 })}
+                      placeholder="587 o 465"
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500 font-mono"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-300">
+                      Usuario / Correo de Envío <span className="text-red-400">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={smtpForm.user}
+                      onChange={(e) => setSmtpForm({ ...smtpForm, user: e.target.value })}
+                      placeholder="ej. hugofsir@gmail.com"
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500"
+                      required
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                        <Lock size={12} className="text-emerald-400" />
+                        Contraseña / App Password <span className="text-red-400">*</span>
+                      </label>
+                      {smtpForm.hasPassword && (
+                        <span className="text-[10px] text-emerald-400 font-mono font-bold">
+                          ✓ Guardada en servidor
+                        </span>
+                      )}
+                    </div>
+                    <input
+                      type="password"
+                      value={smtpForm.pass}
+                      onChange={(e) => setSmtpForm({ ...smtpForm, pass: e.target.value })}
+                      placeholder={smtpForm.hasPassword ? '•••••••••••••••• (dejar vacío para mantener)' : 'Ingresa la contraseña o App Password'}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-300">
+                      Nombre del Remitente
+                    </label>
+                    <input
+                      type="text"
+                      value={smtpForm.fromName}
+                      onChange={(e) => setSmtpForm({ ...smtpForm, fromName: e.target.value })}
+                      placeholder="ej. Calico S.A. Automatizaciones"
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-300">
+                      Correo Remitente Visible (From)
+                    </label>
+                    <input
+                      type="email"
+                      value={smtpForm.fromEmail}
+                      onChange={(e) => setSmtpForm({ ...smtpForm, fromEmail: e.target.value })}
+                      placeholder="ej. reportes@calico.com.ar (opcional)"
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="pt-3 flex items-center justify-between gap-4">
+                  <button
+                    type="submit"
+                    disabled={isSavingSmtp}
+                    className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-6 py-3 rounded-2xl text-sm shadow-lg shadow-emerald-950/40 transition-all disabled:opacity-50"
+                  >
+                    {isSavingSmtp ? (
+                      <RefreshCw size={16} className="animate-spin" />
+                    ) : (
+                      <CheckCircle2 size={16} />
+                    )}
+                    {isSavingSmtp ? 'Guardando...' : 'Guardar Configuración en Servidor'}
+                  </button>
+
+                  <span className="text-xs text-slate-400 font-mono">
+                    Puerto seguro: {smtpForm.port === 465 ? 'SSL (465)' : 'STARTTLS (587)'}
+                  </span>
+                </div>
+              </form>
+            </div>
+
+            {/* Right 1 Col: Test Email & Gmail Guidance */}
+            <div className="space-y-6">
+              
+              {/* Test Email Card */}
+              <div className="bg-slate-900 rounded-3xl p-6 border border-slate-800 shadow-xl space-y-4">
+                <h4 className="text-base font-bold text-white flex items-center gap-2">
+                  <MailCheck className="text-blue-400" size={18} />
+                  Probar Envío de Correo Ahora
+                </h4>
+                <p className="text-xs text-slate-400">
+                  Envía un correo de verificación en tiempo real para confirmar que el servidor puede despachar mensajes con éxito.
+                </p>
+
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-slate-300">
+                    Enviar prueba a:
+                  </label>
+                  <input
+                    type="email"
+                    value={testEmailTo}
+                    onChange={(e) => setTestEmailTo(e.target.value)}
+                    placeholder="tu-correo@gmail.com"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleSendTestEmail}
+                  disabled={isTestingSmtp}
+                  className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 text-white font-bold py-2.5 px-4 rounded-xl text-xs shadow-md shadow-blue-950/40 transition-all disabled:opacity-50"
+                >
+                  {isTestingSmtp ? (
+                    <RefreshCw size={14} className="animate-spin" />
+                  ) : (
+                    <Send size={14} />
+                  )}
+                  {isTestingSmtp ? 'Enviando prueba...' : 'Enviar Correo de Prueba'}
+                </button>
+
+                {testEmailResult && (
+                  <div className={`p-3.5 rounded-xl border text-xs font-medium ${
+                    testEmailResult.success 
+                      ? 'bg-emerald-950/60 border-emerald-600/50 text-emerald-300' 
+                      : 'bg-red-950/60 border-red-600/50 text-red-300'
+                  }`}>
+                    <p className="font-bold flex items-center gap-1.5">
+                      {testEmailResult.success ? <CheckCircle2 size={14} /> : <AlertCircle size={14} />}
+                      {testEmailResult.success ? '¡Prueba Exitosa!' : 'Error de Conexión'}
+                    </p>
+                    <p className="mt-1 text-[11px] leading-relaxed break-words">{testEmailResult.message}</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Gmail App Password Helper */}
+              <div className="bg-slate-900/60 rounded-3xl p-6 border border-slate-800 space-y-3">
+                <h5 className="text-xs font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <HelpCircle size={14} />
+                  ¿Usas cuenta de Gmail?
+                </h5>
+                <div className="text-xs text-slate-300 space-y-2 leading-relaxed">
+                  <p>
+                    Google requiere una <strong>Contraseña de Aplicación de 16 caracteres</strong> en lugar de tu contraseña habitual:
+                  </p>
+                  <ol className="list-decimal list-inside space-y-1 text-slate-400 text-[11px]">
+                    <li>Ve a <strong>myaccount.google.com/security</strong></li>
+                    <li>Activa la <em>Verificación en 2 pasos</em></li>
+                    <li>Busca <strong>Contraseñas de aplicaciones</strong></li>
+                    <li>Crea una llamada "Calico Agentes" y copia el código de 16 letras en el campo Contraseña.</li>
+                  </ol>
+                </div>
+              </div>
+
+            </div>
+
+          </div>
+
         </div>
       )}
 
@@ -1018,24 +1645,30 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
                     {/* Selector de Frecuencia */}
                     <div className="space-y-1.5">
                       <span className="text-[11px] font-semibold text-slate-400 block">
-                        Frecuencia:
+                        Frecuencia de Ejecución:
                       </span>
                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
                         {[
+                          { id: 'monthly', label: 'Mensual / Fin de Mes' },
+                          { id: 'weekdays', label: 'Días Hábiles (L-V)' },
                           { id: 'daily', label: 'Diario (L-D)' },
-                          { id: 'weekdays', label: 'Hábiles (L-V)' },
-                          { id: 'custom_days', label: 'Específicos' },
                           { id: 'weekly', label: 'Semanal' },
                           { id: 'fortnightly', label: 'Quincenal (1 y 16)' },
-                          { id: 'monthly', label: 'Mensual' },
+                          { id: 'custom_days', label: 'Días Específicos' },
                         ].map((freq) => (
                           <button
                             key={freq.id}
                             type="button"
-                            onClick={() => setFormFrequency(freq.id as AgentFrequency)}
-                            className={`px-2.5 py-2 rounded-xl text-xs font-bold transition-all border text-center ${
+                            onClick={() => {
+                              setFormFrequency(freq.id as AgentFrequency);
+                              if (freq.id === 'monthly') {
+                                setFormMonthlyMode('last_day');
+                                setFormDayOfMonth(31);
+                              }
+                            }}
+                            className={`px-2.5 py-2.5 rounded-xl text-xs font-bold transition-all border text-center ${
                               formFrequency === freq.id
-                                ? 'bg-emerald-600 border-emerald-500 text-white shadow-sm'
+                                ? 'bg-emerald-600 border-emerald-500 text-white shadow-md shadow-emerald-950/30'
                                 : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-850'
                             }`}
                           >
@@ -1044,6 +1677,107 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
                         ))}
                       </div>
                     </div>
+
+                    {/* Sub-opciones si es Mensual */}
+                    {formFrequency === 'monthly' && (
+                      <div className="space-y-3 p-3.5 rounded-2xl bg-slate-900/90 border border-slate-800 animate-in fade-in duration-200">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] font-bold text-slate-200 flex items-center gap-1.5">
+                            <Calendar size={14} className="text-emerald-400" />
+                            Modalidad del Envío Mensual:
+                          </span>
+                          <span className="text-[10px] text-emerald-400 font-mono font-semibold">
+                            {formMonthlyMode === 'last_day' ? 'Fin de Mes (Dinámico)' : `Día ${formDayOfMonth} de cada mes`}
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          {/* Opción Último Día del Mes */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFormMonthlyMode('last_day');
+                              setFormDayOfMonth(31);
+                            }}
+                            className={`p-3 rounded-xl text-left border transition-all ${
+                              formMonthlyMode === 'last_day'
+                                ? 'bg-emerald-950/60 border-emerald-500 text-white ring-1 ring-emerald-500 shadow-md'
+                                : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-xs font-bold text-emerald-400 flex items-center gap-1">
+                                <CheckCircle2 size={13} />
+                                Último Día del Mes
+                              </span>
+                              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono uppercase">
+                                Recomendado
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-slate-300 leading-snug">
+                              Envía el último día calendario sin importar si el mes tiene <strong>30</strong> ó <strong>31</strong> días (o 28/29 en Febrero).
+                            </p>
+                          </button>
+
+                          {/* Opción Día Fijo */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFormMonthlyMode('specific_day');
+                              if (formDayOfMonth === 31) setFormDayOfMonth(1);
+                            }}
+                            className={`p-3 rounded-xl text-left border transition-all ${
+                              formMonthlyMode === 'specific_day'
+                                ? 'bg-emerald-950/60 border-emerald-500 text-white ring-1 ring-emerald-500 shadow-md'
+                                : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-xs font-bold text-blue-400 flex items-center gap-1">
+                                <Clock size={13} />
+                                Día Fijo Específico
+                              </span>
+                              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 font-mono uppercase">
+                                Manual
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-slate-300 leading-snug">
+                              Elige un número de día específico (1 al 31) para realizar la descarga y notificación.
+                            </p>
+                          </button>
+                        </div>
+
+                        {/* Selector de número de día si es específico */}
+                        {formMonthlyMode === 'specific_day' ? (
+                          <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-slate-800/80">
+                            <span className="text-[11px] font-semibold text-slate-300">
+                              Número de día del mes:
+                            </span>
+                            <input
+                              type="number"
+                              min="1"
+                              max="31"
+                              value={formDayOfMonth}
+                              onChange={(e) => {
+                                const val = parseInt(e.target.value) || 1;
+                                setFormDayOfMonth(Math.max(1, Math.min(31, val)));
+                              }}
+                              className="w-24 px-3 py-1.5 bg-slate-950 border border-slate-700 rounded-xl text-emerald-400 font-mono font-bold text-center text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
+                            />
+                            <span className="text-[10px] text-slate-400 italic">
+                              * Si el mes tiene menos días (ej. día 31 en mes de 30 días), se ejecutará el último día disponible.
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2 p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-xs">
+                            <CheckCircle2 size={15} className="shrink-0 text-emerald-400" />
+                            <span>
+                              <strong>Ajuste automático garantizado:</strong> El correo se enviará el 31 en meses de 31 días, el 30 en meses de 30 días y el 28/29 en Febrero.
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     {/* Días de la semana si es custom_days o weekly */}
                     {(formFrequency === 'custom_days' || formFrequency === 'weekly') && (
@@ -1077,23 +1811,6 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
                             );
                           })}
                         </div>
-                      </div>
-                    )}
-
-                    {/* Día del mes si es monthly */}
-                    {formFrequency === 'monthly' && (
-                      <div className="flex items-center gap-3 pt-1">
-                        <span className="text-[11px] font-semibold text-slate-400">
-                          Día del mes (1 al 31):
-                        </span>
-                        <input
-                          type="number"
-                          min="1"
-                          max="31"
-                          value={formDayOfMonth}
-                          onChange={(e) => setFormDayOfMonth(parseInt(e.target.value) || 1)}
-                          className="w-24 px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-xl text-emerald-400 font-mono font-bold text-center text-sm"
-                        />
                       </div>
                     )}
 
@@ -1272,7 +1989,21 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
               <div className="text-xs text-slate-400 flex items-center gap-2">
                 <Sparkles size={14} className="text-emerald-400 shrink-0" />
                 <span className="truncate">
-                  El agente se ejecutará a las <strong className="text-emerald-400 font-mono">{formTime} hs</strong> ({formFrequency}) y descargará <strong className="text-white">{FILE_TYPE_OPTIONS.find(f => f.id === formFileType)?.name}</strong>.
+                  El agente se ejecutará a las <strong className="text-emerald-400 font-mono">{formTime} hs</strong> (
+                  <strong className="text-slate-200">
+                    {formFrequency === 'monthly'
+                      ? (formMonthlyMode === 'last_day' ? 'Último día de cada mes' : `Día ${formDayOfMonth} del mes`)
+                      : formFrequency === 'weekdays'
+                      ? 'Días hábiles L-V'
+                      : formFrequency === 'daily'
+                      ? 'Todos los días'
+                      : formFrequency === 'weekly'
+                      ? 'Semanal'
+                      : formFrequency === 'fortnightly'
+                      ? 'Quincenal (1 y 16)'
+                      : 'Días específicos'}
+                  </strong>
+                  ) y descargará <strong className="text-white">{FILE_TYPE_OPTIONS.find(f => f.id === formFileType)?.name}</strong>.
                 </span>
               </div>
 
