@@ -42,6 +42,7 @@ import {
 import { 
   collection, 
   doc, 
+  getDoc,
   setDoc, 
   deleteDoc, 
   updateDoc, 
@@ -64,6 +65,7 @@ import {
   triggerBrowserDownload, 
   triggerMailto, 
   playSuccessChime, 
+  getDefaultEmailBodyForType,
   GeneratedFileResult 
 } from '../utils/fileGenerators';
 import { format, parseISO } from 'date-fns';
@@ -196,42 +198,79 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
   const [isExecutingServerAgent, setIsExecutingServerAgent] = useState<string | null>(null);
   const [testEmailResult, setTestEmailResult] = useState<{ success: boolean; message: string } | null>(null);
 
+  // Helper for safe API calls (prevents unexpected HTML parse errors)
+  const safeApiCall = async (url: string, options?: RequestInit): Promise<{ ok: boolean; status: number; data?: any; error?: string }> => {
+    try {
+      const res = await fetch(url, options);
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const data = await res.json();
+        return { ok: res.ok, status: res.status, data, error: data?.error };
+      }
+      const text = await res.text();
+      return { 
+        ok: false, 
+        status: res.status, 
+        error: res.status === 404 
+          ? 'Servicio API no disponible en este momento.' 
+          : (text.slice(0, 100) || 'Respuesta no válida del servidor.') 
+      };
+    } catch (err: any) {
+      return { ok: false, status: 0, error: err.message || 'Error de red' };
+    }
+  };
+
   // Fetch Server status ONLY (polling safe - never touches user input form)
   const fetchServerStatus = async () => {
-    try {
-      const resStatus = await fetch('/api/agent/server-status');
-      if (resStatus.ok) {
-        const data = await resStatus.json();
-        setServerStatus(data);
-      }
-    } catch (e) {
-      console.warn('Servidor status temporalmente no disponible:', e);
+    const res = await safeApiCall('/api/agent/server-status');
+    if (res.ok && res.data) {
+      setServerStatus(res.data);
     }
   };
 
   // Load SMTP config only once or when requested (will NOT overwrite if user is typing)
   const loadSMTPConfig = async (force = false) => {
     if (!force && isSmtpDirtyRef.current) return;
+    
+    // 1. Try reading directly from Firestore first (Instant & 100% reliable)
     try {
-      const resSmtp = await fetch('/api/smtp/config');
-      if (resSmtp.ok) {
-        const data = await resSmtp.json();
-        setSmtpForm(prev => {
-          if (!force && isSmtpDirtyRef.current) return prev;
-          return {
-            host: data.host || '',
-            port: data.port || 587,
-            secure: data.secure || false,
-            user: data.user || '',
-            pass: '',
-            fromName: data.fromName || 'Calico S.A. Automatizaciones',
-            fromEmail: data.fromEmail || '',
-            hasPassword: !!data.hasPassword
-          };
+      const docRef = doc(db, 'system_settings', 'smtp_config');
+      const snap = await getDoc(docRef);
+      if (snap.exists()) {
+        const data = snap.data();
+        if (!force && isSmtpDirtyRef.current) return;
+        setSmtpForm({
+          host: data.host || '',
+          port: data.port || 587,
+          secure: data.secure || false,
+          user: data.user || '',
+          pass: '',
+          fromName: data.fromName || 'Calico S.A. Automatizaciones',
+          fromEmail: data.fromEmail || '',
+          hasPassword: !!(data.pass || data.hasPassword)
         });
       }
     } catch (e) {
-      console.warn('Configuración SMTP temporalmente no disponible:', e);
+      console.warn('Firestore read smtp_config:', e);
+    }
+
+    // 2. Also try API endpoint to check server environment variables
+    const apiRes = await safeApiCall('/api/smtp/config');
+    if (apiRes.ok && apiRes.data) {
+      const data = apiRes.data;
+      setSmtpForm(prev => {
+        if (!force && isSmtpDirtyRef.current) return prev;
+        return {
+          host: data.host || prev.host || '',
+          port: data.port || prev.port || 587,
+          secure: data.secure ?? prev.secure,
+          user: data.user || prev.user || '',
+          pass: '',
+          fromName: data.fromName || prev.fromName || 'Calico S.A. Automatizaciones',
+          fromEmail: data.fromEmail || prev.fromEmail || '',
+          hasPassword: !!(data.hasPassword || prev.hasPassword)
+        };
+      });
     }
   };
 
@@ -448,17 +487,17 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
     setIsEditing(false);
     setEditingId(null);
     setFormName('');
-    setFormFileType('abastecimientos');
+    setFormFileType('bianchi');
     setFormDatePreset('all');
-    setFormFrequency('monthly');
+    setFormFrequency('weekly');
     setFormMonthlyMode('last_day');
-    setFormDaysOfWeek([1, 2, 3, 4, 5]);
+    setFormDaysOfWeek([1]);
     setFormDayOfMonth(31);
     setFormTime('08:00');
     setFormRecipients([]);
     setRecipientInput('');
     setFormSubject('');
-    setFormBody('');
+    setFormBody(getDefaultEmailBodyForType('bianchi'));
     setFormAutoDownload(true);
     setFormStatus('active');
     setIsModalOpen(true);
@@ -493,7 +532,7 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
     setFormRecipients(agent.recipients || []);
     setRecipientInput('');
     setFormSubject(agent.email_subject || '');
-    setFormBody(agent.email_body || '');
+    setFormBody(agent.email_body || getDefaultEmailBodyForType(agent.file_type));
     setFormAutoDownload(agent.auto_download);
     setFormStatus(agent.status);
     setIsModalOpen(true);
@@ -639,7 +678,7 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
     setTimeout(() => setCopiedSummary(false), 2000);
   };
 
-  // Save SMTP Settings
+  // Save SMTP Settings (Saves to both Firestore cloud database and Node server)
   const handleSaveSMTPConfig = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!smtpForm.host || !smtpForm.user) {
@@ -650,31 +689,54 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
     setIsSavingSmtp(true);
     try {
       const portNum = parseInt(String(smtpForm.port)) || 587;
+
+      // 1. Direct cloud persistence in Firestore
+      try {
+        const docRef = doc(db, 'system_settings', 'smtp_config');
+        const snap = await getDoc(docRef);
+        const existingData = snap.exists() ? snap.data() : {};
+        const finalPass = smtpForm.pass && smtpForm.pass !== '••••••••••••••••' 
+          ? smtpForm.pass.trim() 
+          : (existingData.pass || '');
+
+        await setDoc(docRef, {
+          host: smtpForm.host.trim(),
+          port: portNum,
+          secure: !!smtpForm.secure,
+          user: smtpForm.user.trim(),
+          pass: finalPass,
+          fromName: (smtpForm.fromName || 'Calico S.A. Automatizaciones').trim(),
+          fromEmail: (smtpForm.fromEmail || smtpForm.user).trim(),
+          is_active: true,
+          updated_at: new Date().toISOString()
+        }, { merge: true });
+      } catch (fsErr) {
+        console.warn('Error guardando en Firestore directo:', fsErr);
+      }
+
+      // 2. Notify the running Node server API
       const payload = {
         ...smtpForm,
         port: portNum
       };
 
-      const res = await fetch('/api/smtp/config', {
+      const res = await safeApiCall('/api/smtp/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-      const data = await res.json();
-      if (res.ok) {
-        isSmtpDirtyRef.current = false;
-        setSmtpForm(prev => ({
-          ...prev,
-          pass: '',
-          hasPassword: true
-        }));
-        onShowNotification('Configuración SMTP guardada con éxito en el servidor 24/7', 'success');
-        fetchServerStatus();
-      } else {
-        onShowNotification(data.error || 'Error al guardar configuración SMTP', 'error');
-      }
+
+      isSmtpDirtyRef.current = false;
+      setSmtpForm(prev => ({
+        ...prev,
+        pass: '',
+        hasPassword: true
+      }));
+
+      onShowNotification('Configuración SMTP guardada con éxito para envíos 24/7', 'success');
+      fetchServerStatus();
     } catch (err: any) {
-      onShowNotification('Error de conexión con el servidor: ' + err.message, 'error');
+      onShowNotification('Error guardando configuración: ' + (err.message || 'Error desconocido'), 'error');
     } finally {
       setIsSavingSmtp(false);
     }
@@ -691,7 +753,7 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
     setTestEmailResult(null);
     try {
       const portNum = parseInt(String(smtpForm.port)) || 587;
-      const res = await fetch('/api/smtp/test', {
+      const res = await safeApiCall('/api/smtp/test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -702,17 +764,18 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
           }
         })
       });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        setTestEmailResult({ success: true, message: data.message });
+
+      if (res.ok && res.data?.success) {
+        setTestEmailResult({ success: true, message: res.data.message });
         onShowNotification(`¡Correo de prueba enviado con éxito a ${testEmailTo}!`, 'success');
         fetchServerStatus();
       } else {
-        setTestEmailResult({ success: false, message: data.error || 'Error al enviar correo de prueba' });
-        onShowNotification(data.error || 'Error al enviar correo de prueba', 'error');
+        const errorMsg = res.data?.error || res.error || 'Error al conectar con el servidor SMTP';
+        setTestEmailResult({ success: false, message: errorMsg });
+        onShowNotification(errorMsg, 'error');
       }
     } catch (err: any) {
-      setTestEmailResult({ success: false, message: err.message });
+      setTestEmailResult({ success: false, message: err.message || 'Error de conexión' });
       onShowNotification('Error enviando prueba: ' + err.message, 'error');
     } finally {
       setIsTestingSmtp(false);
@@ -723,14 +786,13 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
   const handleExecuteAgentOnServer = async (agent: AgentSchedule) => {
     setIsExecutingServerAgent(agent.id);
     try {
-      const res = await fetch(`/api/agent/run-now/${agent.id}`, {
+      const res = await safeApiCall(`/api/agent/run-now/${agent.id}`, {
         method: 'POST'
       });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        onShowNotification(`Agente "${agent.name}" ejecutado en el servidor. ${data.emailSent ? 'Correo enviado con éxito.' : 'Archivo procesado.'}`, 'success');
+      if (res.ok && res.data?.success) {
+        onShowNotification(`Agente "${agent.name}" ejecutado en el servidor. ${res.data.emailSent ? 'Correo enviado con éxito.' : 'Archivo procesado.'}`, 'success');
       } else {
-        onShowNotification(`Aviso: ${data.error || 'Error en ejecución de servidor'}`, 'error');
+        onShowNotification(`Aviso: ${res.data?.error || res.error || 'Error en ejecución de servidor'}`, 'error');
       }
     } catch (err: any) {
       onShowNotification('Error conectando al servidor: ' + err.message, 'error');
@@ -1023,6 +1085,24 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
                             {agent.file_format.toUpperCase()} • {agent.date_range_preset}
                           </span>
                         </div>
+                      </div>
+
+                      {/* Message Body Preview */}
+                      <div className="space-y-1 bg-slate-950/40 p-2.5 rounded-xl border border-slate-800/60">
+                        <div className="flex items-center justify-between text-[10px] text-slate-400">
+                          <span className="font-semibold text-emerald-400 flex items-center gap-1">
+                            <MailCheck size={12} /> Mensaje para el Cliente:
+                          </span>
+                          <button
+                            onClick={() => handleOpenEditModal(agent)}
+                            className="text-[10px] text-slate-400 hover:text-emerald-400 flex items-center gap-0.5"
+                          >
+                            <Edit3 size={10} /> Personalizar
+                          </button>
+                        </div>
+                        <p className="text-[11px] text-slate-300 italic line-clamp-2 leading-tight">
+                          "{agent.email_body || getDefaultEmailBodyForType(agent.file_type)}"
+                        </p>
                       </div>
 
                       {/* Recipients List */}
@@ -2003,32 +2083,127 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
                       )}
                     </div>
 
-                    {/* Optional Subject & Body */}
+                    {/* Optional Subject */}
                     <div className="space-y-2 pt-1">
                       <div>
-                        <label className="block text-[11px] font-semibold text-slate-400 mb-1">
-                          Asunto personalizado (Opcional):
-                        </label>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-[11px] font-semibold text-slate-300">
+                            Asunto del Correo:
+                          </label>
+                          <span className="text-[10px] text-slate-500">
+                            (Opcional - vacío usa asunto estándar)
+                          </span>
+                        </div>
                         <input
                           type="text"
-                          placeholder="Dejar vacío para asunto automático con fecha"
+                          placeholder="ej. [AUTOMÁTICO] Fijo Semanal Bianchi - Calico S.A."
                           value={formSubject}
                           onChange={(e) => setFormSubject(e.target.value)}
-                          className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-slate-200 text-xs placeholder:text-slate-500"
+                          className="w-full px-3.5 py-2 bg-slate-900 border border-slate-700 rounded-xl text-slate-200 text-xs placeholder:text-slate-500 focus:ring-2 focus:ring-emerald-500 outline-none"
                         />
                       </div>
+                    </div>
 
-                      <div>
-                        <label className="block text-[11px] font-semibold text-slate-400 mb-1">
-                          Notas / Mensaje en el cuerpo (Opcional):
+                    {/* 6. Dedicated Message Body Editor per Client */}
+                    <div className="space-y-3 pt-3 border-t border-slate-800/80">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <label className="text-xs font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
+                          <MailCheck size={14} />
+                          Cuerpo del Mensaje para el Cliente:
                         </label>
+                        
+                        <button
+                          type="button"
+                          onClick={() => setFormBody(getDefaultEmailBodyForType(formFileType))}
+                          className="px-2.5 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 text-[10px] font-bold border border-emerald-500/30 transition-all flex items-center gap-1"
+                          title="Restablecer el texto al recomendado para este cliente"
+                        >
+                          <RefreshCw size={10} /> Cargar Plantilla Sugerida
+                        </button>
+                      </div>
+
+                      {/* Client Template Buttons */}
+                      <div className="space-y-1.5">
+                        <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider block">
+                          Plantillas Rápidas por Cliente:
+                        </span>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                          {[
+                            { id: 'bianchi', label: '🍇 Bianchi', text: 'Estimados,\n\nComparto el fijo semanal de Bodegas Bianchi.\n\nSaludos cordiales,\nCalico S.A.' },
+                            { id: 'cepas', label: '🍷 Cepas', text: 'Estimados,\n\nComparto el reporte de posiciones de Cepas.\n\nSaludos cordiales,\nCalico S.A.' },
+                            { id: 'escorihuela', label: '🍾 Escorihuela', text: 'Estimados,\n\nComparto el reporte de posiciones de Escorihuela Gascón.\n\nSaludos cordiales,\nCalico S.A.' },
+                            { id: 'la_rural', label: '🥂 La Rural', text: 'Estimados,\n\nComparto el reporte de posiciones de La Rural (Rutini Wines).\n\nSaludos cordiales,\nCalico S.A.' },
+                            { id: 'abastecimientos', label: '🚛 Abastecimiento', text: 'Estimados,\n\nComparto el reporte de abastecimientos y movimientos de pallets.\n\nSaludos cordiales,\nCalico S.A.' },
+                            { id: 'kilos', label: '⚖️ Raizen Kilos', text: 'Estimados,\n\nComparto el reporte de stock diario de kilos de Raizen.\n\nSaludos cordiales,\nCalico S.A.' },
+                          ].map((tmpl) => (
+                            <button
+                              key={tmpl.id}
+                              type="button"
+                              onClick={() => setFormBody(tmpl.text)}
+                              className={`p-2 rounded-xl text-left border text-[11px] font-medium transition-all ${
+                                formFileType === tmpl.id
+                                  ? 'bg-slate-900 border-emerald-500/50 text-emerald-300 hover:bg-slate-850'
+                                  : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+                              }`}
+                            >
+                              <span className="font-bold block">{tmpl.label}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Textarea for Custom Email Body */}
+                      <div className="space-y-1.5">
                         <textarea
-                          placeholder="ej. Favor de revisar y confirmar recepción del reporte antes de las 19hs."
+                          placeholder="Escribe aquí el cuerpo del mensaje que recibirá el cliente..."
                           value={formBody}
                           onChange={(e) => setFormBody(e.target.value)}
-                          rows={2}
-                          className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-slate-200 text-xs resize-none placeholder:text-slate-500"
+                          rows={4}
+                          className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-slate-100 text-xs resize-y placeholder:text-slate-500 focus:ring-2 focus:ring-emerald-500 outline-none leading-relaxed font-sans"
                         />
+
+                        {/* Quick Tags Inserter */}
+                        <div className="flex flex-wrap items-center justify-between gap-1.5 pt-0.5 text-[10px]">
+                          <div className="flex flex-wrap items-center gap-1 text-slate-400">
+                            <span className="font-semibold">Insertar etiqueta:</span>
+                            {[
+                              { tag: '{archivo}', label: '+ Archivo' },
+                              { tag: '{periodo}', label: '+ Período' },
+                              { tag: '{resumen}', label: '+ Métricas' },
+                            ].map(item => (
+                              <button
+                                key={item.tag}
+                                type="button"
+                                onClick={() => setFormBody(prev => `${prev} ${item.tag}`)}
+                                className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-emerald-400 font-mono transition-colors"
+                                title={`Insertar ${item.tag}`}
+                              >
+                                {item.label}
+                              </button>
+                            ))}
+                          </div>
+
+                          <span className="text-slate-500 font-mono">
+                            {formBody.length} caracteres
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Live Email Preview */}
+                      <div className="bg-slate-900/90 rounded-xl p-3 border border-slate-800 space-y-2">
+                        <div className="flex items-center justify-between text-[10px]">
+                          <span className="text-slate-400 font-semibold uppercase tracking-wider flex items-center gap-1">
+                            <Eye size={12} className="text-emerald-400" />
+                            Vista Previa de lo que recibirá el cliente:
+                          </span>
+                          <span className="text-emerald-400 font-mono font-bold">HTML + Excel Adjunto</span>
+                        </div>
+                        <div className="bg-slate-950 p-3 rounded-lg border border-slate-800/80 text-[11px] text-slate-300 font-sans space-y-2 whitespace-pre-wrap">
+                          <p className="text-slate-100 font-medium">{formBody || getDefaultEmailBodyForType(formFileType)}</p>
+                          <div className="pt-2 border-t border-slate-800 text-[10px] text-emerald-400 font-mono flex items-center gap-1 font-semibold">
+                            <span>📎 Archivo adjunto: Reporte_{formFileType.toUpperCase()}_XXXX.xlsx</span>
+                          </div>
+                        </div>
                       </div>
                     </div>
 

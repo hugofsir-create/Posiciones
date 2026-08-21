@@ -93,6 +93,68 @@ function filterByDatePreset<T extends { date: string }>(items: T[], preset: Agen
   }
 }
 
+export function getDefaultEmailBodyForType(fileType: AgentFileType, clientName = ''): string {
+  switch (fileType) {
+    case 'bianchi':
+      return `Estimados,\n\nComparto el fijo semanal de Bodegas Bianchi.\n\nSaludos cordiales,\nCalico S.A.`;
+    case 'cepas':
+      return `Estimados,\n\nComparto el reporte de posiciones de Cepas.\n\nSaludos cordiales,\nCalico S.A.`;
+    case 'escorihuela':
+      return `Estimados,\n\nComparto el reporte de posiciones de Escorihuela Gascón.\n\nSaludos cordiales,\nCalico S.A.`;
+    case 'la_rural':
+      return `Estimados,\n\nComparto el reporte de posiciones de La Rural (Rutini Wines).\n\nSaludos cordiales,\nCalico S.A.`;
+    case 'kilos':
+      return `Estimados,\n\nComparto el reporte de stock diario de kilos de Raizen.\n\nSaludos cordiales,\nCalico S.A.`;
+    case 'abastecimientos':
+      return `Estimados,\n\nComparto el reporte de abastecimientos y movimientos de pallets.\n\nSaludos cordiales,\nCalico S.A.`;
+    case 'consolidado':
+      return `Estimados,\n\nComparto el reporte consolidado integral de operaciones y stock.\n\nSaludos cordiales,\nCalico S.A.`;
+    default:
+      return `Estimados,\n\nComparto el reporte de ${clientName || 'operaciones'}.\n\nSaludos cordiales,\nCalico S.A.`;
+  }
+}
+
+export function formatEmailBody(
+  agent: AgentSchedule,
+  defaultIntro: string,
+  metricsText: string,
+  fileName: string
+): string {
+  // If the agent has a customized email body, respect the user's customized message
+  if (agent.email_body && agent.email_body.trim().length > 0) {
+    let custom = agent.email_body.trim();
+    custom = custom
+      .replace(/\{archivo\}/gi, fileName)
+      .replace(/\{agente\}/gi, agent.name)
+      .replace(/\{periodo\}/gi, agent.date_range_preset)
+      .replace(/\{resumen\}/gi, metricsText);
+
+    // If user's custom message doesn't have the metrics or filename, append cleanly
+    if (!custom.includes(fileName) && !custom.includes('Archivo:')) {
+      const parts = [
+        custom,
+        metricsText ? `\n${metricsText}` : '',
+        `\nArchivo adjunto: ${fileName}`
+      ].filter(Boolean);
+      return parts.join('\n');
+    }
+    return custom;
+  }
+
+  // Standard clean email without robotic automated agent boilerplate
+  const parts = [
+    `Estimados,`,
+    ``,
+    defaultIntro,
+    metricsText ? `\n${metricsText}` : '',
+    ``,
+    `Archivo adjunto: ${fileName}`,
+    `Calico S.A.`
+  ].filter(p => p !== undefined);
+
+  return parts.join('\n');
+}
+
 export function generateAgentFile(agent: AgentSchedule, datasets: AppDatasets): GeneratedFileResult {
   const timestampStr = format(new Date(), 'yyyy-MM-dd_HHmm');
   const dateLabel = format(new Date(), 'dd/MM/yyyy HH:mm', { locale: es });
@@ -166,11 +228,7 @@ export function generateAgentFile(agent: AgentSchedule, datasets: AppDatasets): 
 
       const summaryText = `${filtered.length} movimientos de abastecimiento. Saldo neto: ${totalIngresos - totalEgresos} pallets (Arlog: ${totalArlog}, Descartables: ${totalDescartables}, Rotos: ${totalRotos}).`;
       const emailSubject = agent.email_subject || `[AUTOMÁTICO] Reporte de Abastecimiento de Pallets - ${dateLabel}`;
-      const emailBody = [
-        `Estimados,`,
-        ``,
-        `Se adjunta el reporte automático de Abastecimientos y Movimientos de Pallets generado por el Agente "${agent.name}".`,
-        ``,
+      const metricsText = [
         `📊 Resumen del Reporte:`,
         `• Período evaluado: ${agent.date_range_preset}`,
         `• Registros procesados: ${filtered.length}`,
@@ -179,12 +237,15 @@ export function generateAgentFile(agent: AgentSchedule, datasets: AppDatasets): 
         `• Saldo neto en stock: ${totalIngresos - totalEgresos} pallets`,
         `  - Pallets Arlog: ${totalArlog}`,
         `  - Pallets Descartables: ${totalDescartables}`,
-        `  - Pallets Rotos: ${totalRotos}`,
-        ``,
-        agent.email_body ? `Notas adicionales:\n${agent.email_body}\n\n` : '',
-        `Archivo generado: ${fileName}`,
-        `Sistema: Calico S.A. - Stock & Abastecimiento Pro`
-      ].filter(Boolean).join('\n');
+        `  - Pallets Rotos: ${totalRotos}`
+      ].join('\n');
+
+      const emailBody = formatEmailBody(
+        agent,
+        `Comparto el reporte de abastecimientos y movimientos de pallets.`,
+        metricsText,
+        fileName
+      );
 
       return {
         fileName,
@@ -226,7 +287,13 @@ export function generateAgentFile(agent: AgentSchedule, datasets: AppDatasets): 
       const fileName = `Reporte_Stock_Kilos_${timestampStr}.xlsx`;
       const summaryText = `${filtered.length} días de stock de kilos. Total: ${totalKilos.toLocaleString('es-AR')} kg (Promedio diario: ${avgKilos.toFixed(1)} kg).`;
       const emailSubject = agent.email_subject || `[AUTOMÁTICO] Reporte Stock Diario Kilos - ${dateLabel}`;
-      const emailBody = `Estimados,\n\nSe adjunta el reporte de stock diario de kilos generado automáticamente por el Agente "${agent.name}".\n\n• Total Kilos: ${totalKilos.toLocaleString('es-AR')} kg\n• Promedio Diario: ${avgKilos.toFixed(2)} kg\n• Total Días: ${filtered.length}\n\n${agent.email_body ? agent.email_body + '\n\n' : ''}Archivo: ${fileName}\nCalico S.A.`;
+      const metricsText = `• Total Kilos: ${totalKilos.toLocaleString('es-AR')} kg\n• Promedio Diario: ${avgKilos.toFixed(2)} kg\n• Total Días: ${filtered.length}`;
+      const emailBody = formatEmailBody(
+        agent,
+        `Comparto el reporte de stock diario de kilos de Raizen.`,
+        metricsText,
+        fileName
+      );
 
       return {
         fileName,
@@ -267,7 +334,13 @@ export function generateAgentFile(agent: AgentSchedule, datasets: AppDatasets): 
       const fileName = `Reporte_Bianchi_Posiciones_${timestampStr}.xlsx`;
       const summaryText = `${filtered.length} días de posiciones Bodegas Bianchi. Promedio: ${avgPos.toFixed(1)} posiciones.`;
       const emailSubject = agent.email_subject || `[AUTOMÁTICO] Reporte Posiciones Bianchi - ${dateLabel}`;
-      const emailBody = `Estimados,\n\nSe adjunta el reporte de Posiciones Bodegas Bianchi generado automáticamente por el Agente "${agent.name}".\n\n• Promedio Diario: ${avgPos.toFixed(2)} posiciones\n• Días Registrados: ${filtered.length}\n\n${agent.email_body ? agent.email_body + '\n\n' : ''}Archivo: ${fileName}\nCalico S.A.`;
+      const metricsText = `• Promedio Diario: ${avgPos.toFixed(2)} posiciones\n• Días Registrados: ${filtered.length}`;
+      const emailBody = formatEmailBody(
+        agent,
+        `Comparto el fijo semanal de Bodegas Bianchi.`,
+        metricsText,
+        fileName
+      );
 
       return {
         fileName,
@@ -308,7 +381,13 @@ export function generateAgentFile(agent: AgentSchedule, datasets: AppDatasets): 
       const fileName = `Reporte_Cepas_Posiciones_${timestampStr}.xlsx`;
       const summaryText = `${filtered.length} días de posiciones Cepas. Promedio: ${avgPos.toFixed(1)} posiciones.`;
       const emailSubject = agent.email_subject || `[AUTOMÁTICO] Reporte Posiciones Cepas - ${dateLabel}`;
-      const emailBody = `Estimados,\n\nSe adjunta el reporte de Posiciones Cepas generado automáticamente por el Agente "${agent.name}".\n\n• Promedio Diario: ${avgPos.toFixed(2)} posiciones\n• Días Registrados: ${filtered.length}\n\n${agent.email_body ? agent.email_body + '\n\n' : ''}Archivo: ${fileName}\nCalico S.A.`;
+      const metricsText = `• Promedio Diario: ${avgPos.toFixed(2)} posiciones\n• Días Registrados: ${filtered.length}`;
+      const emailBody = formatEmailBody(
+        agent,
+        `Comparto el reporte de posiciones de Cepas.`,
+        metricsText,
+        fileName
+      );
 
       return {
         fileName,
@@ -349,7 +428,13 @@ export function generateAgentFile(agent: AgentSchedule, datasets: AppDatasets): 
       const fileName = `Reporte_Escorihuela_Posiciones_${timestampStr}.xlsx`;
       const summaryText = `${filtered.length} días de posiciones Escorihuela Gascón. Promedio: ${avgPos.toFixed(1)} posiciones.`;
       const emailSubject = agent.email_subject || `[AUTOMÁTICO] Reporte Posiciones Escorihuela Gascón - ${dateLabel}`;
-      const emailBody = `Estimados,\n\nSe adjunta el reporte de Posiciones Escorihuela Gascón generado automáticamente por el Agente "${agent.name}".\n\n• Promedio Diario: ${avgPos.toFixed(2)} posiciones\n• Días Registrados: ${filtered.length}\n\n${agent.email_body ? agent.email_body + '\n\n' : ''}Archivo: ${fileName}\nCalico S.A.`;
+      const metricsText = `• Promedio Diario: ${avgPos.toFixed(2)} posiciones\n• Días Registrados: ${filtered.length}`;
+      const emailBody = formatEmailBody(
+        agent,
+        `Comparto el reporte de posiciones de Escorihuela Gascón.`,
+        metricsText,
+        fileName
+      );
 
       return {
         fileName,
@@ -390,7 +475,13 @@ export function generateAgentFile(agent: AgentSchedule, datasets: AppDatasets): 
       const fileName = `Reporte_LaRural_Posiciones_${timestampStr}.xlsx`;
       const summaryText = `${filtered.length} días de posiciones La Rural (Rutini Wines). Promedio: ${avgPos.toFixed(1)} posiciones.`;
       const emailSubject = agent.email_subject || `[AUTOMÁTICO] Reporte Posiciones La Rural (Rutini Wines) - ${dateLabel}`;
-      const emailBody = `Estimados,\n\nSe adjunta el reporte de Posiciones La Rural (Rutini Wines) generado automáticamente por el Agente "${agent.name}".\n\n• Promedio Diario: ${avgPos.toFixed(2)} posiciones\n• Días Registrados: ${filtered.length}\n\n${agent.email_body ? agent.email_body + '\n\n' : ''}Archivo: ${fileName}\nCalico S.A.`;
+      const metricsText = `• Promedio Diario: ${avgPos.toFixed(2)} posiciones\n• Días Registrados: ${filtered.length}`;
+      const emailBody = formatEmailBody(
+        agent,
+        `Comparto el reporte de posiciones de La Rural (Rutini Wines).`,
+        metricsText,
+        fileName
+      );
 
       return {
         fileName,
@@ -485,7 +576,20 @@ export function generateAgentFile(agent: AgentSchedule, datasets: AppDatasets): 
       const totalItems = datasets.records.length + datasets.palletRecords.length + datasets.cepasRecords.length + datasets.escorihuelaRecords.length + datasets.laRuralRecords.length + datasets.abastecimientos.length;
       const summaryText = `Reporte Consolidado Integral con todas las bodegas, stock y movimientos (${totalItems} registros totales).`;
       const emailSubject = agent.email_subject || `[AUTOMÁTICO] Consolidado Integral de Operaciones y Stock - ${dateLabel}`;
-      const emailBody = `Estimados,\n\nSe adjunta el reporte Consolidado Integral con la información unificada de todas las bodegas, posiciones de stock y movimientos de abastecimiento.\n\n• Bodegas Bianchi (Últimas Posiciones): ${lastBianchi}\n• Cepas (Últimas Posiciones): ${lastCepas}\n• Escorihuela Gascón (Últimas Posiciones): ${lastEscorihuela}\n• La Rural (Últimas Posiciones): ${lastLaRural}\n• Total Kilos Raizen: ${totalKilos.toLocaleString('es-AR')} kg\n• Movimientos de Abastecimiento: ${totalAbast}\n\n${agent.email_body ? agent.email_body + '\n\n' : ''}Archivo: ${fileName}\nCalico S.A. - Logística Integral`;
+      const metricsText = [
+        `• Bodegas Bianchi (Últimas Posiciones): ${lastBianchi}`,
+        `• Cepas (Últimas Posiciones): ${lastCepas}`,
+        `• Escorihuela Gascón (Últimas Posiciones): ${lastEscorihuela}`,
+        `• La Rural (Últimas Posiciones): ${lastLaRural}`,
+        `• Total Kilos Raizen: ${totalKilos.toLocaleString('es-AR')} kg`,
+        `• Movimientos de Abastecimiento: ${totalAbast}`
+      ].join('\n');
+      const emailBody = formatEmailBody(
+        agent,
+        `Comparto el reporte consolidado integral con la información unificada de todas las bodegas, posiciones de stock y movimientos de abastecimiento.`,
+        metricsText,
+        fileName
+      );
 
       return {
         fileName,
@@ -514,7 +618,12 @@ export function generateAgentFile(agent: AgentSchedule, datasets: AppDatasets): 
       const totalItems = datasets.records.length + datasets.palletRecords.length + datasets.cepasRecords.length + datasets.escorihuelaRecords.length + datasets.laRuralRecords.length + datasets.abastecimientos.length;
       const summaryText = `Copia de seguridad completa en formato JSON (${totalItems} registros totales).`;
       const emailSubject = agent.email_subject || `[AUTOMÁTICO] Copia de Seguridad del Sistema - ${dateLabel}`;
-      const emailBody = `Estimados,\n\nSe ha generado la copia de seguridad integral (Backup JSON) de la base de datos de Calico S.A.\n\nTotal de registros respaldados: ${totalItems}\n\n${agent.email_body ? agent.email_body + '\n\n' : ''}Archivo: ${fileName}`;
+      const emailBody = formatEmailBody(
+        agent,
+        `Comparto la copia de seguridad integral (Backup JSON) de la base de datos de Calico S.A.\n\nTotal de registros respaldados: ${totalItems}`,
+        '',
+        fileName
+      );
 
       return {
         fileName,

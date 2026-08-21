@@ -283,8 +283,8 @@ export async function executeAgent(agentId: string, isManualTrigger = false) {
         html: `
           <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 650px; margin: 0 auto; padding: 24px; background: #0f172a; color: #f1f5f9; border-radius: 16px; border: 1px solid #334155;">
             <div style="border-bottom: 1px solid #334155; padding-bottom: 16px; margin-bottom: 20px;">
-              <h2 style="color: #10b981; font-size: 20px; margin: 0;">Calico S.A. • Reporte Automatizado</h2>
-              <p style="color: #94a3b8; font-size: 13px; margin: 4px 0 0 0;">Generado por el Agente Autónomo: <strong>${agent.name}</strong></p>
+              <h2 style="color: #10b981; font-size: 20px; margin: 0; font-weight: 700;">Calico S.A.</h2>
+              <p style="color: #94a3b8; font-size: 13px; margin: 4px 0 0 0;">Reporte Operativo • ${agent.name}</p>
             </div>
             
             <div style="background: #1e293b; padding: 18px; border-radius: 12px; border: 1px solid #475569; margin-bottom: 20px; font-size: 14px; line-height: 1.6; white-space: pre-wrap; color: #e2e8f0;">${generated.emailBody}</div>
@@ -296,7 +296,7 @@ export async function executeAgent(agentId: string, isManualTrigger = false) {
             </div>
 
             <p style="font-size: 11px; color: #64748b; margin: 0; text-align: center;">
-              Este correo fue enviado de forma 100% autónoma por el servidor en la nube de Calico S.A.
+              Calico S.A. • Centro de Distribución y Operaciones Logísticas
             </p>
           </div>
         `,
