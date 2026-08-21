@@ -169,7 +169,16 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
     smtpUser: string | null;
   } | null>(null);
 
-  const [smtpForm, setSmtpForm] = useState({
+  const [smtpForm, setSmtpForm] = useState<{
+    host: string;
+    port: number | string;
+    secure: boolean;
+    user: string;
+    pass: string;
+    fromName: string;
+    fromEmail: string;
+    hasPassword: boolean;
+  }>({
     host: '',
     port: 587,
     secure: false,
@@ -180,43 +189,57 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
     hasPassword: false
   });
 
+  const isSmtpDirtyRef = useRef(false);
   const [testEmailTo, setTestEmailTo] = useState('hugofsir@gmail.com');
   const [isTestingSmtp, setIsTestingSmtp] = useState(false);
   const [isSavingSmtp, setIsSavingSmtp] = useState(false);
   const [isExecutingServerAgent, setIsExecutingServerAgent] = useState<string | null>(null);
   const [testEmailResult, setTestEmailResult] = useState<{ success: boolean; message: string } | null>(null);
 
-  // Fetch Server & SMTP status
-  const fetchServerAndSMTP = async () => {
+  // Fetch Server status ONLY (polling safe - never touches user input form)
+  const fetchServerStatus = async () => {
     try {
       const resStatus = await fetch('/api/agent/server-status');
       if (resStatus.ok) {
         const data = await resStatus.json();
         setServerStatus(data);
       }
+    } catch (e) {
+      console.warn('Servidor status temporalmente no disponible:', e);
+    }
+  };
 
+  // Load SMTP config only once or when requested (will NOT overwrite if user is typing)
+  const loadSMTPConfig = async (force = false) => {
+    if (!force && isSmtpDirtyRef.current) return;
+    try {
       const resSmtp = await fetch('/api/smtp/config');
       if (resSmtp.ok) {
         const data = await resSmtp.json();
-        setSmtpForm({
-          host: data.host || '',
-          port: data.port || 587,
-          secure: data.secure || false,
-          user: data.user || '',
-          pass: '',
-          fromName: data.fromName || 'Calico S.A. Automatizaciones',
-          fromEmail: data.fromEmail || '',
-          hasPassword: !!data.hasPassword
+        setSmtpForm(prev => {
+          if (!force && isSmtpDirtyRef.current) return prev;
+          return {
+            host: data.host || '',
+            port: data.port || 587,
+            secure: data.secure || false,
+            user: data.user || '',
+            pass: '',
+            fromName: data.fromName || 'Calico S.A. Automatizaciones',
+            fromEmail: data.fromEmail || '',
+            hasPassword: !!data.hasPassword
+          };
         });
       }
     } catch (e) {
-      console.warn('Servidor local / API no disponible temporalmente:', e);
+      console.warn('Configuración SMTP temporalmente no disponible:', e);
     }
   };
 
   useEffect(() => {
-    fetchServerAndSMTP();
-    const interval = setInterval(fetchServerAndSMTP, 30000);
+    fetchServerStatus();
+    loadSMTPConfig(true);
+
+    const interval = setInterval(fetchServerStatus, 30000);
     return () => clearInterval(interval);
   }, []);
 
@@ -626,15 +649,27 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
 
     setIsSavingSmtp(true);
     try {
+      const portNum = parseInt(String(smtpForm.port)) || 587;
+      const payload = {
+        ...smtpForm,
+        port: portNum
+      };
+
       const res = await fetch('/api/smtp/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(smtpForm)
+        body: JSON.stringify(payload)
       });
       const data = await res.json();
       if (res.ok) {
+        isSmtpDirtyRef.current = false;
+        setSmtpForm(prev => ({
+          ...prev,
+          pass: '',
+          hasPassword: true
+        }));
         onShowNotification('Configuración SMTP guardada con éxito en el servidor 24/7', 'success');
-        fetchServerAndSMTP();
+        fetchServerStatus();
       } else {
         onShowNotification(data.error || 'Error al guardar configuración SMTP', 'error');
       }
@@ -655,19 +690,23 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
     setIsTestingSmtp(true);
     setTestEmailResult(null);
     try {
+      const portNum = parseInt(String(smtpForm.port)) || 587;
       const res = await fetch('/api/smtp/test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           toEmail: testEmailTo.trim(),
-          customConfig: smtpForm
+          customConfig: {
+            ...smtpForm,
+            port: portNum
+          }
         })
       });
       const data = await res.json();
       if (res.ok && data.success) {
         setTestEmailResult({ success: true, message: data.message });
         onShowNotification(`¡Correo de prueba enviado con éxito a ${testEmailTo}!`, 'success');
-        fetchServerAndSMTP();
+        fetchServerStatus();
       } else {
         setTestEmailResult({ success: false, message: data.error || 'Error al enviar correo de prueba' });
         onShowNotification(data.error || 'Error al enviar correo de prueba', 'error');
@@ -702,6 +741,7 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
 
   // Apply SMTP Presets
   const handleApplyPreset = (preset: 'gmail' | 'office365' | 'brevo' | 'sendgrid') => {
+    isSmtpDirtyRef.current = true;
     switch (preset) {
       case 'gmail':
         setSmtpForm(prev => ({
@@ -1313,7 +1353,10 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
                     <input
                       type="text"
                       value={smtpForm.host}
-                      onChange={(e) => setSmtpForm({ ...smtpForm, host: e.target.value })}
+                      onChange={(e) => {
+                        isSmtpDirtyRef.current = true;
+                        setSmtpForm(prev => ({ ...prev, host: e.target.value }));
+                      }}
                       placeholder="ej. smtp.gmail.com o mail.calico.com.ar"
                       className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500"
                       required
@@ -1325,9 +1368,12 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
                       Puerto SMTP <span className="text-red-400">*</span>
                     </label>
                     <input
-                      type="number"
+                      type="text"
                       value={smtpForm.port}
-                      onChange={(e) => setSmtpForm({ ...smtpForm, port: parseInt(e.target.value) || 587 })}
+                      onChange={(e) => {
+                        isSmtpDirtyRef.current = true;
+                        setSmtpForm(prev => ({ ...prev, port: e.target.value }));
+                      }}
                       placeholder="587 o 465"
                       className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500 font-mono"
                       required
@@ -1343,7 +1389,10 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
                     <input
                       type="text"
                       value={smtpForm.user}
-                      onChange={(e) => setSmtpForm({ ...smtpForm, user: e.target.value })}
+                      onChange={(e) => {
+                        isSmtpDirtyRef.current = true;
+                        setSmtpForm(prev => ({ ...prev, user: e.target.value }));
+                      }}
                       placeholder="ej. hugofsir@gmail.com"
                       className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500"
                       required
@@ -1365,7 +1414,10 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
                     <input
                       type="password"
                       value={smtpForm.pass}
-                      onChange={(e) => setSmtpForm({ ...smtpForm, pass: e.target.value })}
+                      onChange={(e) => {
+                        isSmtpDirtyRef.current = true;
+                        setSmtpForm(prev => ({ ...prev, pass: e.target.value }));
+                      }}
                       placeholder={smtpForm.hasPassword ? '•••••••••••••••• (dejar vacío para mantener)' : 'Ingresa la contraseña o App Password'}
                       className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500"
                     />
@@ -1380,7 +1432,10 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
                     <input
                       type="text"
                       value={smtpForm.fromName}
-                      onChange={(e) => setSmtpForm({ ...smtpForm, fromName: e.target.value })}
+                      onChange={(e) => {
+                        isSmtpDirtyRef.current = true;
+                        setSmtpForm(prev => ({ ...prev, fromName: e.target.value }));
+                      }}
                       placeholder="ej. Calico S.A. Automatizaciones"
                       className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500"
                     />
@@ -1393,7 +1448,10 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
                     <input
                       type="email"
                       value={smtpForm.fromEmail}
-                      onChange={(e) => setSmtpForm({ ...smtpForm, fromEmail: e.target.value })}
+                      onChange={(e) => {
+                        isSmtpDirtyRef.current = true;
+                        setSmtpForm(prev => ({ ...prev, fromEmail: e.target.value }));
+                      }}
                       placeholder="ej. reportes@calico.com.ar (opcional)"
                       className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500"
                     />
@@ -1757,10 +1815,22 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
                               type="number"
                               min="1"
                               max="31"
-                              value={formDayOfMonth}
+                              value={formDayOfMonth || ''}
                               onChange={(e) => {
-                                const val = parseInt(e.target.value) || 1;
-                                setFormDayOfMonth(Math.max(1, Math.min(31, val)));
+                                const raw = e.target.value;
+                                if (raw === '') {
+                                  setFormDayOfMonth('' as any);
+                                } else {
+                                  const val = parseInt(raw);
+                                  if (!isNaN(val)) {
+                                    setFormDayOfMonth(Math.max(1, Math.min(31, val)));
+                                  }
+                                }
+                              }}
+                              onBlur={() => {
+                                if (!formDayOfMonth || isNaN(Number(formDayOfMonth))) {
+                                  setFormDayOfMonth(1);
+                                }
                               }}
                               className="w-24 px-3 py-1.5 bg-slate-950 border border-slate-700 rounded-xl text-emerald-400 font-mono font-bold text-center text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
                             />
