@@ -64,6 +64,8 @@ import {
   generateAgentFile, 
   triggerBrowserDownload, 
   triggerMailto, 
+  openOutlookWeb,
+  generateAndComposeEmail,
   playSuccessChime, 
   getDefaultEmailBodyForType,
   GeneratedFileResult 
@@ -305,10 +307,43 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
     triggerType: 'scheduled' | 'manual';
   } | null>(null);
 
-  const [copiedSummary, setCopiedSummary] = useState(false);
+  const [copiedField, setCopiedField] = useState<'subject' | 'recipients' | 'body' | 'all' | null>(null);
   const [isExecutingNow, setIsExecutingNow] = useState<string | null>(null);
   const [currentTime, setCurrentTime] = useState<string>(format(new Date(), 'HH:mm:ss'));
   const [currentDateStr, setCurrentDateStr] = useState<string>(format(new Date(), 'EEEE, d MMMM yyyy', { locale: es }));
+  const [hasNotificationPermission, setHasNotificationPermission] = useState<boolean>(
+    typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted'
+  );
+
+  // Request browser notification permission
+  const handleRequestNotificationPermission = async () => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      try {
+        const perm = await Notification.requestPermission();
+        if (perm === 'granted') {
+          setHasNotificationPermission(true);
+          onShowNotification('Notificaciones de escritorio activadas para alertas de reportes.', 'success');
+        } else {
+          setHasNotificationPermission(false);
+          onShowNotification('Permiso de notificaciones no concedido.', 'info');
+        }
+      } catch (e) {
+        console.warn('Error requesting notification permission:', e);
+      }
+    }
+  };
+
+  // Copy text helper with individual field feedback
+  const handleCopyField = async (text: string, field: 'subject' | 'recipients' | 'body' | 'all', label: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedField(field);
+      onShowNotification(`${label} copiado al portapapeles.`, 'success');
+      setTimeout(() => setCopiedField(null), 2500);
+    } catch (err) {
+      console.error('Error copying text:', err);
+    }
+  };
 
   // Ref to track last checked minute for scheduler
   const lastCheckedMinuteRef = useRef<string>('');
@@ -416,7 +451,7 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
 
           const todayDateKey = format(now, 'yyyy-MM-dd');
           if (shouldRun && agent.last_run_date !== todayDateKey) {
-            executeAgentTask(agent, 'scheduled');
+            handleTriggerAgentWithAlert(agent, 'scheduled');
           }
         });
       }
@@ -425,20 +460,31 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
     return () => clearInterval(timer);
   }, [agents, datasets]);
 
-  // Execute Agent Task (Manual or Scheduled)
-  const executeAgentTask = async (agent: AgentSchedule, triggerType: 'scheduled' | 'manual') => {
+  // Trigger Agent Alert and Download (both for scheduled tick and manual action)
+  const handleTriggerAgentWithAlert = async (agent: AgentSchedule, triggerType: 'scheduled' | 'manual' = 'manual') => {
     setIsExecutingNow(agent.id);
     try {
       const fileResult = generateAgentFile(agent, datasets);
 
-      // Auto download if enabled
-      if (agent.auto_download) {
-        triggerBrowserDownload(fileResult.blob, fileResult.fileName);
-      }
+      // 1. Download file automatically to user's computer
+      triggerBrowserDownload(fileResult.blob, fileResult.fileName);
 
+      // 2. Play audio alert chime
       playSuccessChime();
 
-      // Show execution modal
+      // 3. Trigger Browser desktop notification if supported and granted
+      if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+        try {
+          new Notification(`🔔 ¡Alerta de Envío: ${agent.name}!`, {
+            body: `El archivo ${fileResult.fileName} se descargó automáticamente. Abre la alerta para enviar por Outlook.`,
+            icon: '/favicon.ico'
+          });
+        } catch (e) {
+          console.warn('Desktop notification error:', e);
+        }
+      }
+
+      // 4. Show execution alert pop-up modal
       setExecutionResult({
         agent,
         fileResult,
@@ -449,7 +495,7 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
       const executedAt = format(now, 'yyyy-MM-dd HH:mm:ss');
       const todayDateKey = format(now, 'yyyy-MM-dd');
 
-      // Update agent last run
+      // Update agent last run in Firestore
       await updateDoc(doc(db, 'agents', agent.id), {
         last_run_at: executedAt,
         last_run_date: todayDateKey
@@ -471,15 +517,35 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
       });
 
       onShowNotification(
-        `Agente "${agent.name}" ejecutado con éxito. Archivo "${fileResult.fileName}" descargado.`,
+        triggerType === 'scheduled' 
+          ? `🔔 ¡Alerta Programada!: "${agent.name}" descargó "${fileResult.fileName}" y activó la alerta de envío.` 
+          : `Alerta generada y archivo "${fileResult.fileName}" descargado con éxito.`,
         'success'
       );
     } catch (err) {
-      console.error('Error executing agent:', err);
-      onShowNotification(`Error al ejecutar el agente "${agent.name}"`, 'error');
+      console.error('Error triggering agent alert:', err);
+      onShowNotification(`Error al generar el reporte para "${agent.name}"`, 'error');
     } finally {
       setIsExecutingNow(null);
     }
+  };
+
+  // Quick download only (without opening alert modal)
+  const handleQuickDownloadOnly = (agent: AgentSchedule) => {
+    try {
+      const fileResult = generateAgentFile(agent, datasets);
+      triggerBrowserDownload(fileResult.blob, fileResult.fileName);
+      playSuccessChime();
+      onShowNotification(`Archivo "${fileResult.fileName}" descargado en tu equipo.`, 'success');
+    } catch (err) {
+      console.error('Error downloading file:', err);
+      onShowNotification(`Error al descargar el archivo de "${agent.name}"`, 'error');
+    }
+  };
+
+  // Backwards compatible alias
+  const executeAgentTask = (agent: AgentSchedule, triggerType: 'scheduled' | 'manual') => {
+    return handleTriggerAgentWithAlert(agent, triggerType);
   };
 
   // Open Form for New Agent
@@ -674,8 +740,9 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
   // Copy Summary text
   const handleCopySummary = (text: string) => {
     navigator.clipboard.writeText(text);
-    setCopiedSummary(true);
-    setTimeout(() => setCopiedSummary(false), 2000);
+    setCopiedField('body');
+    onShowNotification('Texto copiado al portapapeles.', 'success');
+    setTimeout(() => setCopiedField(null), 2000);
   };
 
   // Save SMTP Settings (Saves to both Firestore cloud database and Node server)
@@ -869,25 +936,25 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
     <div className="space-y-8 animate-in fade-in duration-300">
       
       {/* Top Banner: Agent System Status & Live Clock */}
-      <div className="relative overflow-hidden bg-gradient-to-r from-slate-900 via-slate-900/90 to-emerald-950/40 rounded-3xl p-6 md:p-8 border border-emerald-500/20 shadow-2xl">
-        <div className="absolute top-0 right-0 w-96 h-96 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none" />
+      <div className="relative overflow-hidden bg-gradient-to-r from-slate-900 via-slate-900/90 to-blue-950/40 rounded-3xl p-6 md:p-8 border border-blue-500/20 shadow-2xl">
+        <div className="absolute top-0 right-0 w-96 h-96 bg-blue-500/5 rounded-full blur-3xl pointer-events-none" />
         
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div className="space-y-2">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-semibold">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/30 text-blue-400 text-xs font-semibold">
               <span className="relative flex h-2 w-2">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
               </span>
-              Agente Autónomo de Descargas & Notificaciones Activo
+              Sistema de Alertas Pop-up y Descargas Automáticas Activo
             </div>
             
             <h2 className="text-2xl md:text-3xl font-black text-white tracking-tight flex items-center gap-3">
-              <Bot className="text-emerald-400" size={32} />
-              Agente Configurable de Archivos y Envíos
+              <Bot className="text-blue-400" size={32} />
+              Agente de Alertas y Descargas Programadas
             </h2>
             <p className="text-slate-400 text-sm max-w-2xl leading-relaxed">
-              Programa la generación automática de archivos (Excel XLSX / JSON), define el día y la hora exacta de descarga, y asigna los destinatarios para notificaciones y remisiones automáticas.
+              En el día y hora que configures, el sistema <strong>descargará automáticamente el archivo Excel (.xlsx)</strong> en tu equipo y mostrará una <strong>alerta pop-up</strong> con el asunto, destinatarios y texto listos para enviar en Outlook con un solo clic.
             </p>
           </div>
 
@@ -911,19 +978,19 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
           </div>
         </div>
 
-        {/* Sub-Tabs: Agentes, Historial, Servidor 24/7 */}
+        {/* Sub-Tabs: Agentes y Historial */}
         <div className="mt-8 pt-6 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-4">
           <div className="flex bg-slate-950 p-1.5 rounded-2xl border border-slate-800 flex-wrap gap-1">
             <button
               onClick={() => setActiveSubTab('agents')}
               className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
                 activeSubTab === 'agents' 
-                  ? 'bg-emerald-600 text-white shadow-md' 
+                  ? 'bg-blue-600 text-white shadow-md' 
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
               <Settings size={15} />
-              Agentes Configurados ({agents.length})
+              Mis Agentes ({agents.length})
               {activeCount > 0 && (
                 <span className="ml-1 px-1.5 py-0.5 text-[10px] rounded-full bg-emerald-950 text-emerald-300 border border-emerald-700/50">
                   {activeCount} activos
@@ -935,39 +1002,30 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
               onClick={() => setActiveSubTab('logs')}
               className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
                 activeSubTab === 'logs' 
-                  ? 'bg-emerald-600 text-white shadow-md' 
+                  ? 'bg-blue-600 text-white shadow-md' 
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
               <History size={15} />
-              Historial de Descargas & Envíos ({logs.length})
-            </button>
-
-            <button
-              onClick={() => setActiveSubTab('smtp_server')}
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-                activeSubTab === 'smtp_server' 
-                  ? 'bg-emerald-600 text-white shadow-md' 
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <Server size={15} />
-              Servidor 24/7 (Envío con App Cerrada)
-              {serverStatus?.smtpConfigured ? (
-                <span className="ml-1 px-1.5 py-0.5 text-[10px] rounded-full bg-emerald-950 text-emerald-300 border border-emerald-700/50">
-                  SMTP Listo
-                </span>
-              ) : (
-                <span className="ml-1 px-1.5 py-0.5 text-[10px] rounded-full bg-amber-950 text-amber-300 border border-amber-700/50">
-                  Configurar
-                </span>
-              )}
+              Historial de Alertas & Descargas ({logs.length})
             </button>
           </div>
 
-          <div className="text-xs text-emerald-400 font-medium flex items-center gap-2 bg-emerald-950/40 px-3 py-1.5 rounded-xl border border-emerald-800/40">
-            <Zap size={14} className="text-amber-400 animate-bounce" />
-            <span>Motor 24/7 en Servidor Activo: Los correos se envían incluso con la app cerrada.</span>
+          <div className="flex items-center gap-3">
+            {!hasNotificationPermission && typeof window !== 'undefined' && 'Notification' in window && (
+              <button
+                onClick={handleRequestNotificationPermission}
+                className="text-xs text-amber-300 hover:text-amber-200 font-semibold flex items-center gap-1.5 bg-amber-950/40 hover:bg-amber-950/60 px-3 py-1.5 rounded-xl border border-amber-800/50 transition-all"
+              >
+                <BellRing size={13} className="text-amber-400 animate-bounce" />
+                <span>Activar Alertas de Escritorio</span>
+              </button>
+            )}
+
+            <div className="text-xs text-emerald-400 font-medium flex items-center gap-2 bg-emerald-950/40 px-3 py-1.5 rounded-xl border border-emerald-800/40">
+              <Zap size={14} className="text-amber-400" />
+              <span>Descarga automática + Alerta pop-up activadas</span>
+            </div>
           </div>
         </div>
       </div>
@@ -977,13 +1035,13 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
         <div className="space-y-6">
           {agents.length === 0 ? (
             <div className="bg-slate-900/60 rounded-3xl p-12 text-center border border-dashed border-slate-800 space-y-4">
-              <div className="w-16 h-16 rounded-2xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center mx-auto">
+              <div className="w-16 h-16 rounded-2xl bg-blue-500/10 text-blue-400 flex items-center justify-center mx-auto">
                 <Bot size={32} />
               </div>
               <div className="space-y-1">
                 <h3 className="text-lg font-bold text-slate-200">No hay agentes programados</h3>
                 <p className="text-slate-500 text-xs max-w-md mx-auto">
-                  Crea tu primer agente para descargar automáticamente tus reportes de Abastecimientos, Kilos, Bodegas Bianchi, Cepas, Escorihuela o La Rural y enviarlos a tus destinatarios.
+                  Crea un agente para descargar automáticamente tus reportes de Abastecimientos, Kilos, Bodegas Bianchi, Cepas, Escorihuela o La Rural y mostrar la alerta con los datos de envío en Outlook.
                 </p>
               </div>
               <button
@@ -1005,7 +1063,7 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
                     key={agent.id}
                     className={`relative rounded-3xl p-6 border transition-all duration-200 flex flex-col justify-between space-y-5 ${
                       agent.status === 'active' 
-                        ? 'bg-slate-900/90 border-slate-800 hover:border-emerald-500/50 shadow-xl' 
+                        ? 'bg-slate-900/90 border-slate-800 hover:border-blue-500/50 shadow-xl' 
                         : 'bg-slate-900/40 border-slate-800/60 opacity-70'
                     }`}
                   >
@@ -1014,7 +1072,7 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
                       <div className="flex items-start justify-between gap-3">
                         <div className="flex items-center gap-3">
                           <div className={`p-3 rounded-2xl ${
-                            agent.status === 'active' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-slate-800 text-slate-400'
+                            agent.status === 'active' ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' : 'bg-slate-800 text-slate-400'
                           }`}>
                             <IconComponent size={24} />
                           </div>
@@ -1045,8 +1103,8 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
                       <div className="space-y-2 bg-slate-950/60 p-3.5 rounded-2xl border border-slate-800/80 text-xs">
                         <div className="flex items-center justify-between">
                           <span className="text-slate-400 flex items-center gap-1.5">
-                            <Clock size={14} className="text-emerald-400" />
-                            Hora de Ejecución:
+                            <Clock size={14} className="text-blue-400" />
+                            Hora de Alerta:
                           </span>
                           <span className="font-mono font-bold text-emerald-400 text-sm">
                             {agent.time} hs
@@ -1101,12 +1159,12 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
                       {/* Message Body Preview */}
                       <div className="space-y-1 bg-slate-950/40 p-2.5 rounded-xl border border-slate-800/60">
                         <div className="flex items-center justify-between text-[10px] text-slate-400">
-                          <span className="font-semibold text-emerald-400 flex items-center gap-1">
-                            <MailCheck size={12} /> Mensaje para el Cliente:
+                          <span className="font-semibold text-blue-400 flex items-center gap-1">
+                            <MailCheck size={12} /> Mensaje para el Correo:
                           </span>
                           <button
                             onClick={() => handleOpenEditModal(agent)}
-                            className="text-[10px] text-slate-400 hover:text-emerald-400 flex items-center gap-0.5"
+                            className="text-[10px] text-slate-400 hover:text-blue-400 flex items-center gap-0.5"
                           >
                             <Edit3 size={10} /> Personalizar
                           </button>
@@ -1145,47 +1203,37 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
                       {agent.last_run_at && (
                         <p className="text-[10px] text-slate-500 font-mono flex items-center gap-1">
                           <CheckCircle2 size={12} className="text-emerald-500" />
-                          Última ejecución: {agent.last_run_at}
+                          Última alerta: {agent.last_run_at}
                         </p>
                       )}
                     </div>
 
                     {/* Actions bar */}
-                    <div className="pt-4 border-t border-slate-800/80 flex flex-col gap-2">
-                      <div className="grid grid-cols-2 gap-2">
-                        <button
-                          onClick={() => handleExecuteAgentOnServer(agent)}
-                          disabled={isExecutingServerAgent === agent.id}
-                          className="flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 px-2.5 rounded-xl text-[11px] shadow-md shadow-blue-950/30 transition-all disabled:opacity-50"
-                          title="Genera el archivo en el servidor y lo envía por correo electrónico inmediatamente"
-                        >
-                          {isExecutingServerAgent === agent.id ? (
-                            <RefreshCw size={13} className="animate-spin" />
-                          ) : (
-                            <Send size={13} />
-                          )}
-                          {isExecutingServerAgent === agent.id ? 'Enviando...' : '⚡ Enviar Correo'}
-                        </button>
+                    <div className="pt-4 border-t border-slate-800/80 flex flex-col gap-2.5">
+                      <button
+                        onClick={() => handleTriggerAgentWithAlert(agent, 'manual')}
+                        disabled={isRunningThis}
+                        className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-blue-600 via-indigo-600 to-emerald-600 hover:from-blue-500 hover:to-emerald-500 text-white font-bold py-2.5 px-3 rounded-2xl text-xs shadow-md shadow-blue-950/40 transition-all disabled:opacity-50 hover:scale-[1.01]"
+                        title="Descarga automáticamente el reporte en Excel y abre la alerta pop-up con todos los datos para enviar"
+                      >
+                        {isRunningThis ? (
+                          <RefreshCw size={14} className="animate-spin" />
+                        ) : (
+                          <BellRing size={14} className="text-amber-300 animate-bounce" />
+                        )}
+                        {isRunningThis ? 'Descargando y Abriendo Alerta...' : '🔔 Descargar y Ver Alerta de Envío'}
+                      </button>
 
+                      <div className="flex items-center justify-between gap-2 pt-0.5">
                         <button
-                          onClick={() => executeAgentTask(agent, 'manual')}
+                          onClick={() => handleQuickDownloadOnly(agent)}
                           disabled={isRunningThis}
-                          className="flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 px-2.5 rounded-xl text-[11px] shadow-md shadow-emerald-950/30 transition-all disabled:opacity-50"
-                          title="Descargar archivo directamente en tu navegador"
+                          className="flex-1 flex items-center justify-center gap-1.5 bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white font-semibold py-1.5 px-2.5 rounded-xl text-[11px] transition-all disabled:opacity-50"
+                          title="Descarga solo el archivo Excel en tu carpeta de Descargas"
                         >
-                          {isRunningThis ? (
-                            <RefreshCw size={13} className="animate-spin" />
-                          ) : (
-                            <Download size={13} />
-                          )}
-                          {isRunningThis ? 'Generando...' : 'Descargar'}
+                          <Download size={12} className="text-emerald-400" />
+                          Solo Descargar Excel
                         </button>
-                      </div>
-
-                      <div className="flex items-center justify-between gap-2 pt-1">
-                        <span className="text-[10px] text-slate-500 font-mono flex items-center gap-1">
-                          <Server size={11} className="text-emerald-400" /> Servidor 24/7
-                        </span>
 
                         <div className="flex items-center gap-1">
                           <button
@@ -2303,10 +2351,10 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
         </div>
       )}
 
-      {/* MODAL: Live Execution Result & Email Dispatch */}
+      {/* MODAL: Live Execution Alert & Outlook Email Dispatch */}
       {executionResult && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-emerald-500/40 rounded-3xl max-w-xl w-full p-6 md:p-8 space-y-6 shadow-2xl relative animate-in zoom-in-95 duration-200">
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-slate-900 border-2 border-blue-500/50 rounded-3xl max-w-xl w-full p-6 md:p-8 space-y-6 shadow-2xl relative animate-in zoom-in-95 duration-200">
             <button
               onClick={() => setExecutionResult(null)}
               className="absolute top-6 right-6 p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-all"
@@ -2314,110 +2362,183 @@ export const AgentAutomation: React.FC<AgentAutomationProps> = ({ datasets, onSh
               <X size={20} />
             </button>
 
+            {/* Alert Header */}
             <div className="text-center space-y-2">
-              <div className="w-16 h-16 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto border border-emerald-500/40 shadow-lg shadow-emerald-500/10">
-                <CheckCircle2 size={36} />
+              <div className="w-16 h-16 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center mx-auto border-2 border-blue-500/40 shadow-lg shadow-blue-500/20">
+                <BellRing size={34} className="animate-bounce text-amber-300" />
               </div>
-              <h2 className="text-2xl font-bold text-white">
-                ¡Archivo Generado y Descargado con Éxito!
+              <div className="inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 text-[11px] font-bold uppercase tracking-wider">
+                <Sparkles size={12} /> ¡Alerta de Envío de Reporte!
+              </div>
+              <h2 className="text-2xl font-black text-white tracking-tight">
+                Reporte Descargado Automáticamente
               </h2>
-              <p className="text-slate-400 text-xs">
-                El agente <strong className="text-emerald-400">"{executionResult.agent.name}"</strong> procesó los datos y generó el archivo solicitado.
+              <p className="text-slate-300 text-xs max-w-md mx-auto leading-relaxed">
+                El agente <strong className="text-blue-400">"{executionResult.agent.name}"</strong> descargó el archivo Excel en tu equipo y preparó todos los datos para enviar por Outlook.
               </p>
             </div>
 
-            {/* File info card */}
+            {/* File info card with verified column format */}
             <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <FileSpreadsheet className="text-emerald-400" size={20} />
-                  <span className="font-mono text-sm font-bold text-white">
-                    {executionResult.fileResult.fileName}
-                  </span>
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-emerald-500/10 rounded-xl text-emerald-400 border border-emerald-500/20">
+                    <FileSpreadsheet size={22} />
+                  </div>
+                  <div>
+                    <span className="font-mono text-sm font-bold text-white block">
+                      {executionResult.fileResult.fileName}
+                    </span>
+                    <span className="text-[11px] text-emerald-400 font-semibold flex items-center gap-1">
+                      <Check size={13} /> Guardado en tu carpeta de Descargas
+                    </span>
+                  </div>
                 </div>
                 <button
                   onClick={() => triggerBrowserDownload(executionResult.fileResult.blob, executionResult.fileResult.fileName)}
-                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold flex items-center gap-1 transition-all"
+                  className="px-3 py-1.5 bg-slate-800 hover:bg-emerald-600 text-slate-200 hover:text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-sm shrink-0"
+                  title="Volver a descargar el archivo Excel"
                 >
                   <Download size={13} /> Re-descargar
                 </button>
               </div>
 
-              <div className="p-3 bg-slate-900/90 rounded-xl border border-slate-800/80 text-xs font-mono text-slate-300">
-                <p className="text-[10px] text-slate-500 uppercase tracking-widest mb-1">Resumen del archivo:</p>
+              {/* Format Badge */}
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-950/40 rounded-xl border border-emerald-800/40 text-[11px] text-emerald-300">
+                <CheckCircle2 size={13} className="text-emerald-400 shrink-0" />
+                <span><strong>Columnas:</strong> Fecha [DD, MM, AAAA] • Día • Cantidad</span>
+              </div>
+
+              {/* Summary line */}
+              <div className="p-2.5 bg-slate-900/90 rounded-xl border border-slate-800/80 text-xs font-mono text-slate-300">
+                <span className="text-[10px] text-slate-500 uppercase tracking-widest block mb-0.5">Resumen de datos:</span>
                 {executionResult.fileResult.summaryText}
               </div>
 
-              {/* Recipients section */}
-              {executionResult.agent.recipients && executionResult.agent.recipients.length > 0 && (
-                <div className="space-y-1.5 pt-1">
-                  <span className="text-[11px] font-semibold text-slate-400 flex items-center gap-1">
-                    <Mail size={12} className="text-emerald-400" /> Destinatarios asignados:
-                  </span>
-                  <div className="flex flex-wrap gap-1.5">
-                    {executionResult.agent.recipients.map((em, i) => (
-                      <span key={i} className="px-2.5 py-0.5 bg-slate-900 border border-slate-800 text-slate-300 text-xs rounded-lg">
-                        {em}
-                      </span>
-                    ))}
+              {/* Copyable Destinatarios, Asunto y Cuerpo */}
+              <div className="space-y-2.5 pt-2 border-t border-slate-800/80 text-xs">
+                
+                {/* 1. Destinatarios */}
+                <div className="flex items-center justify-between gap-2 bg-slate-900/60 p-2.5 rounded-xl border border-slate-800/60">
+                  <div className="min-w-0 flex-1">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                      Destinatarios ({executionResult.agent.recipients?.length || 1}):
+                    </span>
+                    <p className="font-mono text-slate-200 text-xs truncate mt-0.5">
+                      {executionResult.agent.recipients && executionResult.agent.recipients.length > 0 
+                        ? executionResult.agent.recipients.join('; ') 
+                        : 'hsir@calico-sa.com.ar'}
+                    </p>
                   </div>
+                  <button
+                    onClick={() => handleCopyField(
+                      executionResult.agent.recipients && executionResult.agent.recipients.length > 0 
+                        ? executionResult.agent.recipients.join('; ') 
+                        : 'hsir@calico-sa.com.ar',
+                      'recipients',
+                      'Destinatarios'
+                    )}
+                    className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg text-[11px] font-semibold flex items-center gap-1 transition-all shrink-0"
+                    title="Copiar lista de destinatarios"
+                  >
+                    {copiedField === 'recipients' ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
+                    {copiedField === 'recipients' ? 'Copiado' : 'Copiar'}
+                  </button>
                 </div>
-              )}
+
+                {/* 2. Asunto */}
+                <div className="flex items-center justify-between gap-2 bg-slate-900/60 p-2.5 rounded-xl border border-slate-800/60">
+                  <div className="min-w-0 flex-1">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                      Asunto:
+                    </span>
+                    <p className="font-medium text-slate-200 text-xs truncate mt-0.5">
+                      {executionResult.fileResult.emailSubject}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => handleCopyField(
+                      executionResult.fileResult.emailSubject,
+                      'subject',
+                      'Asunto'
+                    )}
+                    className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg text-[11px] font-semibold flex items-center gap-1 transition-all shrink-0"
+                    title="Copiar asunto"
+                  >
+                    {copiedField === 'subject' ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
+                    {copiedField === 'subject' ? 'Copiado' : 'Copiar'}
+                  </button>
+                </div>
+
+                {/* 3. Cuerpo */}
+                <div className="bg-slate-900/60 p-2.5 rounded-xl border border-slate-800/60 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                      Cuerpo del Correo:
+                    </span>
+                    <button
+                      onClick={() => handleCopyField(
+                        executionResult.fileResult.emailBody,
+                        'body',
+                        'Cuerpo del mensaje'
+                      )}
+                      className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg text-[11px] font-semibold flex items-center gap-1 transition-all shrink-0"
+                      title="Copiar texto del correo"
+                    >
+                      {copiedField === 'body' ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
+                      {copiedField === 'body' ? 'Copiado' : 'Copiar Texto'}
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-slate-300 italic line-clamp-3 leading-relaxed whitespace-pre-line bg-slate-950/60 p-2 rounded-lg border border-slate-800/50">
+                    {executionResult.fileResult.emailBody}
+                  </p>
+                </div>
+
+              </div>
             </div>
 
-            {/* Action buttons */}
+            {/* Quick Outlook Dispatch buttons */}
             <div className="space-y-3">
-              {executionResult.agent.recipients && executionResult.agent.recipients.length > 0 && (
-                <div className="space-y-2">
-                  <button
-                    onClick={() => handleExecuteAgentOnServer(executionResult.agent)}
-                    disabled={isExecutingServerAgent === executionResult.agent.id}
-                    className="w-full py-3.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold rounded-2xl shadow-lg shadow-blue-950/50 transition-all flex items-center justify-center gap-2 text-sm disabled:opacity-50 hover:scale-[1.01]"
-                  >
-                    {isExecutingServerAgent === executionResult.agent.id ? (
-                      <RefreshCw size={18} className="animate-spin" />
-                    ) : (
-                      <Send size={18} />
-                    )}
-                    {isExecutingServerAgent === executionResult.agent.id 
-                      ? 'Despachando Correo con Excel Adjunto...' 
-                      : '⚡ Enviar Correo con Archivo Excel Adjunto (Servidor 24/7)'}
-                  </button>
+              <div className="p-3 bg-blue-950/40 rounded-2xl border border-blue-800/50 space-y-2">
+                <p className="text-xs text-blue-200 leading-relaxed">
+                  💡 <strong>¿Deseas redactarlo ahora mismo?</strong> Haz clic abajo para abrir un nuevo mensaje en Outlook con los destinatarios, asunto y cuerpo completados automáticamente, y adjunta el archivo <span className="font-mono text-emerald-400 font-semibold">{executionResult.fileResult.fileName}</span>.
+                </p>
 
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
                   <button
                     onClick={() => triggerMailto(
-                      executionResult.agent.recipients, 
+                      executionResult.agent.recipients && executionResult.agent.recipients.length > 0 ? executionResult.agent.recipients : ['hsir@calico-sa.com.ar'], 
                       executionResult.fileResult.emailSubject, 
                       executionResult.fileResult.emailBody
                     )}
-                    className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 font-semibold rounded-2xl transition-all flex items-center justify-center gap-2 text-xs"
+                    className="py-2.5 px-3 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl shadow-md transition-all flex items-center justify-center gap-1.5 text-xs"
                   >
-                    <Mail size={15} className="text-blue-400" />
-                    Abrir Borrador en Outlook (El archivo ya está descargado en tu equipo)
+                    <Mail size={14} />
+                    Abrir en Outlook App (Escritorio)
                   </button>
 
-                  <p className="text-[11px] text-slate-400 text-center px-2 leading-relaxed">
-                    💡 <strong>Nota de adjuntos:</strong> El botón <span className="text-blue-300 font-semibold">⚡ Enviar Correo</span> adjunta el archivo Excel automáticamente desde el servidor. Si abres Outlook localmente con el borrador, adjunta el archivo <span className="text-emerald-400 font-mono font-semibold">{executionResult.fileResult.fileName}</span> descargado en tu carpeta de Descargas.
-                  </p>
+                  <button
+                    onClick={() => openOutlookWeb(
+                      executionResult.agent.recipients && executionResult.agent.recipients.length > 0 ? executionResult.agent.recipients : ['hsir@calico-sa.com.ar'], 
+                      executionResult.fileResult.emailSubject, 
+                      executionResult.fileResult.emailBody
+                    )}
+                    className="py-2.5 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white font-bold rounded-xl border border-slate-700 transition-all flex items-center justify-center gap-1.5 text-xs"
+                  >
+                    <ExternalLink size={14} className="text-blue-400" />
+                    Abrir en Outlook Web (M365)
+                  </button>
                 </div>
-              )}
-
-              <div className="flex gap-3 pt-1">
-                <button
-                  onClick={() => handleCopySummary(executionResult.fileResult.emailBody)}
-                  className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold transition-all flex items-center justify-center gap-1.5"
-                >
-                  {copiedSummary ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
-                  {copiedSummary ? 'Copiado al portapapeles' : 'Copiar Resumen y Texto'}
-                </button>
-
-                <button
-                  onClick={() => setExecutionResult(null)}
-                  className="px-6 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold transition-all"
-                >
-                  Cerrar
-                </button>
               </div>
+
+              {/* Close Button */}
+              <button
+                onClick={() => setExecutionResult(null)}
+                className="w-full py-3 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-2xl text-xs transition-all shadow-md flex items-center justify-center gap-2"
+              >
+                <CheckCircle2 size={16} className="text-emerald-400" />
+                Cerrar Alerta
+              </button>
             </div>
 
           </div>

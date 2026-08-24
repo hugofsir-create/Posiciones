@@ -43,6 +43,54 @@ export interface AppDatasets {
   abastecimientos: AbastecimientoRecord[];
 }
 
+export function formatReportDate(dateStr: string): { fechaFormatted: string; diaNombre: string } {
+  if (!dateStr) return { fechaFormatted: '', diaNombre: '' };
+  try {
+    let d: Date;
+    if (dateStr.includes('-')) {
+      const parts = dateStr.split('-').map(Number);
+      if (parts[0] > 1000) {
+        d = new Date(parts[0], parts[1] - 1, parts[2]);
+      } else {
+        d = new Date(parts[2], parts[1] - 1, parts[0]);
+      }
+    } else if (dateStr.includes('/')) {
+      const parts = dateStr.split('/').map(Number);
+      if (parts[0] > 1000) {
+        d = new Date(parts[0], parts[1] - 1, parts[2]);
+      } else {
+        d = new Date(parts[2], parts[1] - 1, parts[0]);
+      }
+    } else {
+      d = parseISO(dateStr);
+    }
+
+    if (isNaN(d.getTime())) {
+      return { fechaFormatted: dateStr, diaNombre: '' };
+    }
+
+    const dd = String(d.getDate()).padStart(2, '0');
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const aaaa = String(d.getFullYear());
+    
+    // Formato exacto solicitado: dd, mm, aaaa
+    const fechaFormatted = `${dd}, ${mm}, ${aaaa}`;
+
+    const dias = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+    const diaNombre = dias[d.getDay()] || '';
+
+    return {
+      fechaFormatted,
+      diaNombre
+    };
+  } catch {
+    return {
+      fechaFormatted: dateStr,
+      diaNombre: ''
+    };
+  }
+}
+
 function filterByDatePreset<T extends { date: string }>(items: T[], preset: AgentDatePreset): T[] {
   const now = new Date();
   const todayStr = format(now, 'yyyy-MM-dd');
@@ -173,6 +221,7 @@ export function generateAgentFile(agent: AgentSchedule, datasets: AppDatasets): 
         const arlog = record.pallets_arlog ?? record.pallets;
         const desc = record.pallets_descartables ?? 0;
         const rotos = record.pallets_rotos ?? 0;
+        const { fechaFormatted, diaNombre } = formatReportDate(record.date);
 
         if (isEgreso) {
           totalEgresos += record.pallets;
@@ -184,14 +233,15 @@ export function generateAgentFile(agent: AgentSchedule, datasets: AppDatasets): 
         totalRotos += isEgreso ? -rotos : rotos;
 
         return {
+          'Fecha': fechaFormatted,
+          'Día': diaNombre,
+          'Cantidad': record.pallets,
           'Tipo Movimiento': isEgreso ? 'Salida / Devolución' : 'Ingreso / Entrada',
-          'Fecha': record.date,
           'Cliente': record.client,
           'Número de Remito': record.remito,
           'Pallets Arlog': arlog,
           'Pallets Descartables': desc,
           'Pallets Rotos': rotos,
-          'Total Pallets': record.pallets,
           'Saldo Impacto': isEgreso ? -record.pallets : record.pallets
         };
       });
@@ -202,7 +252,7 @@ export function generateAgentFile(agent: AgentSchedule, datasets: AppDatasets): 
 
       // Summary sheet
       const summaryData = [
-        ["REPORTE AUTOMATIZADO DE ABASTECIMIENTO DE PALLETS"],
+        ["REPORTE DE ABASTECIMIENTO DE PALLETS"],
         ["Generado por Agente:", agent.name],
         ["Fecha de Ejecución:", dateLabel],
         ["Filtro de Período:", agent.date_range_preset],
@@ -227,7 +277,7 @@ export function generateAgentFile(agent: AgentSchedule, datasets: AppDatasets): 
       const fileName = `Reporte_Abastecimientos_${timestampStr}.xlsx`;
 
       const summaryText = `${filtered.length} movimientos de abastecimiento. Saldo neto: ${totalIngresos - totalEgresos} pallets (Arlog: ${totalArlog}, Descartables: ${totalDescartables}, Rotos: ${totalRotos}).`;
-      const emailSubject = agent.email_subject || `[AUTOMÁTICO] Reporte de Abastecimiento de Pallets - ${dateLabel}`;
+      const emailSubject = agent.email_subject || `Reporte de Abastecimiento de Pallets - ${dateLabel}`;
       const metricsText = [
         `📊 Resumen del Reporte:`,
         `• Período evaluado: ${agent.date_range_preset}`,
@@ -264,11 +314,15 @@ export function generateAgentFile(agent: AgentSchedule, datasets: AppDatasets): 
       const totalKilos = filtered.reduce((sum, r) => sum + r.kilos, 0);
       const avgKilos = filtered.length > 0 ? totalKilos / filtered.length : 0;
 
-      const dataToExport = filtered.map(r => ({
-        'Fecha': r.date,
-        'Kilos': r.kilos,
-        'Estado': 'Registrado'
-      }));
+      const dataToExport = filtered.map(r => {
+        const { fechaFormatted, diaNombre } = formatReportDate(r.date);
+        return {
+          'Fecha': fechaFormatted,
+          'Día': diaNombre,
+          'Cantidad': r.kilos,
+          'Estado': 'Registrado'
+        };
+      });
 
       const ws = XLSX.utils.json_to_sheet(dataToExport);
       const wb = XLSX.utils.book_new();
@@ -286,7 +340,7 @@ export function generateAgentFile(agent: AgentSchedule, datasets: AppDatasets): 
       const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       const fileName = `Reporte_Stock_Kilos_${timestampStr}.xlsx`;
       const summaryText = `${filtered.length} días de stock de kilos. Total: ${totalKilos.toLocaleString('es-AR')} kg (Promedio diario: ${avgKilos.toFixed(1)} kg).`;
-      const emailSubject = agent.email_subject || `[AUTOMÁTICO] Reporte Stock Diario Kilos - ${dateLabel}`;
+      const emailSubject = agent.email_subject || `Reporte Stock Diario Kilos - ${dateLabel}`;
       const metricsText = `• Total Kilos: ${totalKilos.toLocaleString('es-AR')} kg\n• Promedio Diario: ${avgKilos.toFixed(2)} kg\n• Total Días: ${filtered.length}`;
       const emailBody = formatEmailBody(
         agent,
@@ -312,10 +366,14 @@ export function generateAgentFile(agent: AgentSchedule, datasets: AppDatasets): 
       const totalPos = filtered.reduce((sum, r) => sum + r.positions, 0);
       const avgPos = filtered.length > 0 ? totalPos / filtered.length : 0;
 
-      const dataToExport = filtered.map(r => ({
-        'Fecha': r.date,
-        'Posiciones Pallets': r.positions
-      }));
+      const dataToExport = filtered.map(r => {
+        const { fechaFormatted, diaNombre } = formatReportDate(r.date);
+        return {
+          'Fecha': fechaFormatted,
+          'Día': diaNombre,
+          'Cantidad': r.positions
+        };
+      });
 
       const ws = XLSX.utils.json_to_sheet(dataToExport);
       const wb = XLSX.utils.book_new();
@@ -333,7 +391,7 @@ export function generateAgentFile(agent: AgentSchedule, datasets: AppDatasets): 
       const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       const fileName = `Reporte_Bianchi_Posiciones_${timestampStr}.xlsx`;
       const summaryText = `${filtered.length} días de posiciones Bodegas Bianchi. Promedio: ${avgPos.toFixed(1)} posiciones.`;
-      const emailSubject = agent.email_subject || `[AUTOMÁTICO] Reporte Posiciones Bianchi - ${dateLabel}`;
+      const emailSubject = agent.email_subject || `Reporte Posiciones Bianchi - ${dateLabel}`;
       const metricsText = `• Promedio Diario: ${avgPos.toFixed(2)} posiciones\n• Días Registrados: ${filtered.length}`;
       const emailBody = formatEmailBody(
         agent,
@@ -359,10 +417,14 @@ export function generateAgentFile(agent: AgentSchedule, datasets: AppDatasets): 
       const totalPos = filtered.reduce((sum, r) => sum + r.positions, 0);
       const avgPos = filtered.length > 0 ? totalPos / filtered.length : 0;
 
-      const dataToExport = filtered.map(r => ({
-        'Fecha': r.date,
-        'Posiciones': r.positions
-      }));
+      const dataToExport = filtered.map(r => {
+        const { fechaFormatted, diaNombre } = formatReportDate(r.date);
+        return {
+          'Fecha': fechaFormatted,
+          'Día': diaNombre,
+          'Cantidad': r.positions
+        };
+      });
 
       const ws = XLSX.utils.json_to_sheet(dataToExport);
       const wb = XLSX.utils.book_new();
@@ -380,7 +442,7 @@ export function generateAgentFile(agent: AgentSchedule, datasets: AppDatasets): 
       const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       const fileName = `Reporte_Cepas_Posiciones_${timestampStr}.xlsx`;
       const summaryText = `${filtered.length} días de posiciones Cepas. Promedio: ${avgPos.toFixed(1)} posiciones.`;
-      const emailSubject = agent.email_subject || `[AUTOMÁTICO] Reporte Posiciones Cepas - ${dateLabel}`;
+      const emailSubject = agent.email_subject || `Reporte Posiciones Cepas - ${dateLabel}`;
       const metricsText = `• Promedio Diario: ${avgPos.toFixed(2)} posiciones\n• Días Registrados: ${filtered.length}`;
       const emailBody = formatEmailBody(
         agent,
@@ -406,10 +468,14 @@ export function generateAgentFile(agent: AgentSchedule, datasets: AppDatasets): 
       const totalPos = filtered.reduce((sum, r) => sum + r.positions, 0);
       const avgPos = filtered.length > 0 ? totalPos / filtered.length : 0;
 
-      const dataToExport = filtered.map(r => ({
-        'Fecha': r.date,
-        'Posiciones': r.positions
-      }));
+      const dataToExport = filtered.map(r => {
+        const { fechaFormatted, diaNombre } = formatReportDate(r.date);
+        return {
+          'Fecha': fechaFormatted,
+          'Día': diaNombre,
+          'Cantidad': r.positions
+        };
+      });
 
       const ws = XLSX.utils.json_to_sheet(dataToExport);
       const wb = XLSX.utils.book_new();
@@ -427,7 +493,7 @@ export function generateAgentFile(agent: AgentSchedule, datasets: AppDatasets): 
       const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       const fileName = `Reporte_Escorihuela_Posiciones_${timestampStr}.xlsx`;
       const summaryText = `${filtered.length} días de posiciones Escorihuela Gascón. Promedio: ${avgPos.toFixed(1)} posiciones.`;
-      const emailSubject = agent.email_subject || `[AUTOMÁTICO] Reporte Posiciones Escorihuela Gascón - ${dateLabel}`;
+      const emailSubject = agent.email_subject || `Reporte Posiciones Escorihuela Gascón - ${dateLabel}`;
       const metricsText = `• Promedio Diario: ${avgPos.toFixed(2)} posiciones\n• Días Registrados: ${filtered.length}`;
       const emailBody = formatEmailBody(
         agent,
@@ -453,10 +519,14 @@ export function generateAgentFile(agent: AgentSchedule, datasets: AppDatasets): 
       const totalPos = filtered.reduce((sum, r) => sum + r.positions, 0);
       const avgPos = filtered.length > 0 ? totalPos / filtered.length : 0;
 
-      const dataToExport = filtered.map(r => ({
-        'Fecha': r.date,
-        'Posiciones': r.positions
-      }));
+      const dataToExport = filtered.map(r => {
+        const { fechaFormatted, diaNombre } = formatReportDate(r.date);
+        return {
+          'Fecha': fechaFormatted,
+          'Día': diaNombre,
+          'Cantidad': r.positions
+        };
+      });
 
       const ws = XLSX.utils.json_to_sheet(dataToExport);
       const wb = XLSX.utils.book_new();
@@ -474,7 +544,7 @@ export function generateAgentFile(agent: AgentSchedule, datasets: AppDatasets): 
       const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       const fileName = `Reporte_LaRural_Posiciones_${timestampStr}.xlsx`;
       const summaryText = `${filtered.length} días de posiciones La Rural (Rutini Wines). Promedio: ${avgPos.toFixed(1)} posiciones.`;
-      const emailSubject = agent.email_subject || `[AUTOMÁTICO] Reporte Posiciones La Rural (Rutini Wines) - ${dateLabel}`;
+      const emailSubject = agent.email_subject || `Reporte Posiciones La Rural (Rutini Wines) - ${dateLabel}`;
       const metricsText = `• Promedio Diario: ${avgPos.toFixed(2)} posiciones\n• Días Registrados: ${filtered.length}`;
       const emailBody = formatEmailBody(
         agent,
@@ -525,47 +595,86 @@ export function generateAgentFile(agent: AgentSchedule, datasets: AppDatasets): 
 
       // 2. Abastecimientos
       if (datasets.abastecimientos.length > 0) {
-        const abastData = datasets.abastecimientos.map(r => ({
-          'Tipo': (r.type || 'ingreso') === 'egreso' ? 'Salida' : 'Ingreso',
-          'Fecha': r.date,
-          'Cliente': r.client,
-          'Remito': r.remito,
-          'Pallets Arlog': r.pallets_arlog ?? r.pallets,
-          'Pallets Descartables': r.pallets_descartables ?? 0,
-          'Pallets Rotos': r.pallets_rotos ?? 0,
-          'Total Pallets': r.pallets
-        }));
+        const abastData = datasets.abastecimientos.map(r => {
+          const { fechaFormatted, diaNombre } = formatReportDate(r.date);
+          return {
+            'Fecha': fechaFormatted,
+            'Día': diaNombre,
+            'Cantidad': r.pallets,
+            'Tipo': (r.type || 'ingreso') === 'egreso' ? 'Salida' : 'Ingreso',
+            'Cliente': r.client,
+            'Remito': r.remito,
+            'Pallets Arlog': r.pallets_arlog ?? r.pallets,
+            'Pallets Descartables': r.pallets_descartables ?? 0,
+            'Pallets Rotos': r.pallets_rotos ?? 0
+          };
+        });
         const wsAbast = XLSX.utils.json_to_sheet(abastData);
         XLSX.utils.book_append_sheet(wb, wsAbast, "Abastecimientos");
       }
 
       // 3. Raizen Kilos
       if (datasets.records.length > 0) {
-        const wsKilos = XLSX.utils.json_to_sheet(datasets.records.map(r => ({ 'Fecha': r.date, 'Kilos': r.kilos })));
+        const wsKilos = XLSX.utils.json_to_sheet(datasets.records.map(r => {
+          const { fechaFormatted, diaNombre } = formatReportDate(r.date);
+          return {
+            'Fecha': fechaFormatted,
+            'Día': diaNombre,
+            'Cantidad': r.kilos
+          };
+        }));
         XLSX.utils.book_append_sheet(wb, wsKilos, "Stock Kilos Raizen");
       }
 
       // 4. Bianchi
       if (datasets.palletRecords.length > 0) {
-        const wsBianchi = XLSX.utils.json_to_sheet(datasets.palletRecords.map(r => ({ 'Fecha': r.date, 'Posiciones': r.positions })));
+        const wsBianchi = XLSX.utils.json_to_sheet(datasets.palletRecords.map(r => {
+          const { fechaFormatted, diaNombre } = formatReportDate(r.date);
+          return {
+            'Fecha': fechaFormatted,
+            'Día': diaNombre,
+            'Cantidad': r.positions
+          };
+        }));
         XLSX.utils.book_append_sheet(wb, wsBianchi, "Bianchi");
       }
 
       // 5. Cepas
       if (datasets.cepasRecords.length > 0) {
-        const wsCepas = XLSX.utils.json_to_sheet(datasets.cepasRecords.map(r => ({ 'Fecha': r.date, 'Posiciones': r.positions })));
+        const wsCepas = XLSX.utils.json_to_sheet(datasets.cepasRecords.map(r => {
+          const { fechaFormatted, diaNombre } = formatReportDate(r.date);
+          return {
+            'Fecha': fechaFormatted,
+            'Día': diaNombre,
+            'Cantidad': r.positions
+          };
+        }));
         XLSX.utils.book_append_sheet(wb, wsCepas, "Cepas");
       }
 
       // 6. Escorihuela
       if (datasets.escorihuelaRecords.length > 0) {
-        const wsEscorihuela = XLSX.utils.json_to_sheet(datasets.escorihuelaRecords.map(r => ({ 'Fecha': r.date, 'Posiciones': r.positions })));
+        const wsEscorihuela = XLSX.utils.json_to_sheet(datasets.escorihuelaRecords.map(r => {
+          const { fechaFormatted, diaNombre } = formatReportDate(r.date);
+          return {
+            'Fecha': fechaFormatted,
+            'Día': diaNombre,
+            'Cantidad': r.positions
+          };
+        }));
         XLSX.utils.book_append_sheet(wb, wsEscorihuela, "Escorihuela");
       }
 
       // 7. La Rural
       if (datasets.laRuralRecords.length > 0) {
-        const wsLaRural = XLSX.utils.json_to_sheet(datasets.laRuralRecords.map(r => ({ 'Fecha': r.date, 'Posiciones': r.positions })));
+        const wsLaRural = XLSX.utils.json_to_sheet(datasets.laRuralRecords.map(r => {
+          const { fechaFormatted, diaNombre } = formatReportDate(r.date);
+          return {
+            'Fecha': fechaFormatted,
+            'Día': diaNombre,
+            'Cantidad': r.positions
+          };
+        }));
         XLSX.utils.book_append_sheet(wb, wsLaRural, "La Rural");
       }
 
@@ -575,7 +684,7 @@ export function generateAgentFile(agent: AgentSchedule, datasets: AppDatasets): 
       const fileName = `Reporte_Consolidado_Integral_${timestampStr}.xlsx`;
       const totalItems = datasets.records.length + datasets.palletRecords.length + datasets.cepasRecords.length + datasets.escorihuelaRecords.length + datasets.laRuralRecords.length + datasets.abastecimientos.length;
       const summaryText = `Reporte Consolidado Integral con todas las bodegas, stock y movimientos (${totalItems} registros totales).`;
-      const emailSubject = agent.email_subject || `[AUTOMÁTICO] Consolidado Integral de Operaciones y Stock - ${dateLabel}`;
+      const emailSubject = agent.email_subject || `Consolidado Integral de Operaciones y Stock - ${dateLabel}`;
       const metricsText = [
         `• Bodegas Bianchi (Últimas Posiciones): ${lastBianchi}`,
         `• Cepas (Últimas Posiciones): ${lastCepas}`,
@@ -650,12 +759,52 @@ export function triggerBrowserDownload(blob: Blob, fileName: string) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+export function openOutlookWeb(recipients: string[], subject: string, body: string) {
+  const to = recipients.join(';');
+  const encodedSubject = encodeURIComponent(subject);
+  const encodedBody = encodeURIComponent(body);
+  const webOutlookUrl = `https://outlook.office.com/mail/deeplink/compose?to=${encodeURIComponent(to)}&subject=${encodedSubject}&body=${encodedBody}`;
+  window.open(webOutlookUrl, '_blank');
+}
+
 export function triggerMailto(recipients: string[], subject: string, body: string) {
-  const to = recipients.join(',');
+  const to = recipients.join(';');
   const encodedSubject = encodeURIComponent(subject);
   const encodedBody = encodeURIComponent(body);
   const mailtoUrl = `mailto:${to}?subject=${encodedSubject}&body=${encodedBody}`;
-  window.open(mailtoUrl, '_blank');
+  
+  try {
+    const link = document.createElement('a');
+    link.href = mailtoUrl;
+    link.target = '_blank';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  } catch {
+    window.open(mailtoUrl, '_blank');
+  }
+}
+
+export function generateAndComposeEmail(
+  agent: AgentSchedule, 
+  datasets: AppDatasets,
+  preferWeb = false
+): GeneratedFileResult {
+  // 1. Generate the Excel file
+  const fileResult = generateAgentFile(agent, datasets);
+
+  // 2. Download the Excel file to the user's Downloads folder
+  triggerBrowserDownload(fileResult.blob, fileResult.fileName);
+
+  // 3. Compose new email with custom subject, recipients, and custom body
+  const recipients = agent.recipients && agent.recipients.length > 0 ? agent.recipients : ['hsir@calico-sa.com.ar'];
+  if (preferWeb) {
+    openOutlookWeb(recipients, fileResult.emailSubject, fileResult.emailBody);
+  } else {
+    triggerMailto(recipients, fileResult.emailSubject, fileResult.emailBody);
+  }
+
+  return fileResult;
 }
 
 export function playSuccessChime() {
