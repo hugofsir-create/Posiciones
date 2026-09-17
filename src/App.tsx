@@ -28,7 +28,11 @@ import {
   PlusCircle,
   MinusCircle,
   RotateCcw,
-  Bot
+  Bot,
+  AlertTriangle,
+  AlertCircle,
+  Check,
+  CheckCircle2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { AgentAutomation } from './components/AgentAutomation';
@@ -1050,6 +1054,38 @@ export default function App() {
     });
   }, [abastecimientos, filterAbastType, filterAbastClient, filterAbastStartDate, filterAbastEndDate]);
 
+  // Check for duplicate remito in Abastecimientos in real-time
+  const duplicateAbast = useMemo(() => {
+    const trimmed = newAbastRemito.trim();
+    if (!trimmed) return null;
+    return (
+      abastecimientos.find(
+        (item) =>
+          Boolean(item.remito) &&
+          item.remito.trim().toLowerCase() === trimmed.toLowerCase() &&
+          (!isEditingAbast || item.id !== editingAbastId)
+      ) || null
+    );
+  }, [newAbastRemito, abastecimientos, isEditingAbast, editingAbastId]);
+
+  // Set of duplicate remitos across the entire collection (for badge indicators in table)
+  const duplicatedRemitosSet = useMemo(() => {
+    const counts = new Map<string, number>();
+    abastecimientos.forEach((a) => {
+      const key = a.remito?.trim().toLowerCase();
+      if (key) {
+        counts.set(key, (counts.get(key) || 0) + 1);
+      }
+    });
+    const dups = new Set<string>();
+    counts.forEach((count, key) => {
+      if (count > 1) {
+        dups.add(key);
+      }
+    });
+    return dups;
+  }, [abastecimientos]);
+
   const abastStats = useMemo(() => {
     let totalIngresos = 0;
     let totalEgresos = 0;
@@ -1184,8 +1220,25 @@ export default function App() {
 
   const handleAbastSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newAbastDate || !newAbastClient || !newAbastRemito) {
+    const trimmedRemito = newAbastRemito.trim();
+    if (!newAbastDate || !newAbastClient || !trimmedRemito) {
       setNotification({ message: 'Fecha, Cliente y Número de Remito son requeridos', type: 'error' });
+      return;
+    }
+
+    // Validation: prevent duplicate remito number
+    const duplicate = abastecimientos.find(
+      (item) =>
+        Boolean(item.remito) &&
+        item.remito.trim().toLowerCase() === trimmedRemito.toLowerCase() &&
+        (!isEditingAbast || item.id !== editingAbastId)
+    );
+
+    if (duplicate) {
+      setNotification({
+        message: `⛔ Remito duplicado: El número "${duplicate.remito}" ya fue registrado el ${format(parseISO(duplicate.date), 'dd/MM/yyyy', { locale: es })} para el cliente ${duplicate.client}. No se permite registrar remitos duplicados.`,
+        type: 'error'
+      });
       return;
     }
 
@@ -1223,7 +1276,7 @@ export default function App() {
         await updateDoc(doc(db, 'abastecimientos', editingAbastId), {
           date: newAbastDate,
           client: clientName,
-          remito: newAbastRemito,
+          remito: trimmedRemito,
           pallets: palletsNum,
           pallets_arlog: finalArlog,
           pallets_descartables: finalDescartables,
@@ -1235,7 +1288,7 @@ export default function App() {
         await addDoc(collection(db, 'abastecimientos'), {
           date: newAbastDate,
           client: clientName,
-          remito: newAbastRemito,
+          remito: trimmedRemito,
           pallets: palletsNum,
           pallets_arlog: finalArlog,
           pallets_descartables: finalDescartables,
@@ -2987,15 +3040,78 @@ export default function App() {
                     )}
 
                     <div>
-                      <label className="block text-xs font-medium text-slate-400 mb-1 ml-1 font-bold">Número de Remito</label>
-                      <input 
-                        type="text" 
-                        placeholder="Ej: 0001-00042531"
-                        value={newAbastRemito}
-                        onChange={(e) => setNewAbastRemito(e.target.value)}
-                        className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none font-mono text-slate-200 text-sm"
-                        required
-                      />
+                      <div className="flex items-center justify-between mb-1 ml-1">
+                        <label className="block text-xs font-medium text-slate-400 font-bold">
+                          Número de Remito
+                        </label>
+                        {newAbastRemito.trim().length > 0 && !duplicateAbast && (
+                          <span className="text-[11px] text-emerald-400 font-semibold flex items-center gap-1">
+                            <Check size={12} /> Remito disponible
+                          </span>
+                        )}
+                        {duplicateAbast && (
+                          <span className="text-[11px] text-rose-400 font-bold flex items-center gap-1 animate-pulse">
+                            <AlertCircle size={12} /> ¡Ya registrado!
+                          </span>
+                        )}
+                      </div>
+                      
+                      <div className="relative">
+                        <input 
+                          type="text" 
+                          placeholder="Ej: 0001-00042531"
+                          value={newAbastRemito}
+                          onChange={(e) => setNewAbastRemito(e.target.value)}
+                          className={cn(
+                            "w-full px-4 py-3 bg-slate-950 border rounded-xl outline-none font-mono text-slate-200 text-sm transition-all",
+                            duplicateAbast 
+                              ? "border-rose-500 bg-rose-950/20 text-rose-100 focus:ring-2 focus:ring-rose-500 pr-10" 
+                              : newAbastRemito.trim().length > 0 
+                                ? "border-emerald-500/80 bg-emerald-950/10 focus:ring-2 focus:ring-emerald-500 pr-10" 
+                                : "border-slate-800 focus:ring-2 focus:ring-emerald-500"
+                          )}
+                          required
+                        />
+                        {duplicateAbast && (
+                          <div className="absolute right-3 top-1/2 -translate-y-1/2 text-rose-400 pointer-events-none">
+                            <AlertCircle size={18} />
+                          </div>
+                        )}
+                        {!duplicateAbast && newAbastRemito.trim().length > 0 && (
+                          <div className="absolute right-3 top-1/2 -translate-y-1/2 text-emerald-400 pointer-events-none">
+                            <Check size={18} />
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Informative Alert for Duplicate Remito */}
+                      {duplicateAbast && (
+                        <motion.div 
+                          initial={{ opacity: 0, y: -4 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          className="mt-2.5 p-3.5 bg-rose-950/60 border border-rose-500/60 rounded-2xl text-xs space-y-2 text-rose-200 shadow-lg shadow-rose-950/30"
+                        >
+                          <div className="flex items-center gap-2 font-bold text-rose-300 text-xs">
+                            <AlertTriangle size={16} className="text-rose-400 shrink-0" />
+                            <span>¡Atención! Número de Remito ya existe</span>
+                          </div>
+                          
+                          <p className="text-[11px] text-slate-300 leading-relaxed">
+                            Ya existe un movimiento en el sistema con el remito <strong className="font-mono text-white bg-slate-900 px-1.5 py-0.5 rounded border border-slate-700">"{duplicateAbast.remito}"</strong>:
+                          </p>
+
+                          <div className="bg-slate-950/90 p-2.5 rounded-xl border border-rose-900/50 text-[11px] font-mono grid grid-cols-2 gap-2 text-slate-300">
+                            <div><span className="text-slate-500">Fecha:</span> {format(parseISO(duplicateAbast.date), 'dd/MM/yyyy', { locale: es })}</div>
+                            <div><span className="text-slate-500">Cliente:</span> {duplicateAbast.client}</div>
+                            <div><span className="text-slate-500">Tipo:</span> {duplicateAbast.type === 'egreso' ? 'Salida / Devolución (-)' : 'Ingreso / Entrada (+)'}</div>
+                            <div><span className="text-slate-500">Pallets:</span> {duplicateAbast.pallets}</div>
+                          </div>
+
+                          <p className="text-[11px] text-rose-300 font-semibold pt-0.5 flex items-center gap-1.5">
+                            <span>⛔ <strong>No se permite el ingreso duplicado:</strong> Ingrese un número de remito único para poder guardar.</span>
+                          </p>
+                        </motion.div>
+                      )}
                     </div>
 
                     {/* Desglose de Pallets por Estado */}
@@ -3074,16 +3190,26 @@ export default function App() {
                       )}
                       <button 
                         type="submit"
+                        disabled={!!duplicateAbast || loading}
+                        title={duplicateAbast ? `No se puede guardar: El remito "${duplicateAbast.remito}" ya se encuentra registrado` : undefined}
                         className={cn(
                           "py-3 text-white font-bold rounded-xl shadow-lg transition-all flex items-center justify-center gap-2",
-                          newAbastType === 'egreso' 
-                            ? "bg-rose-600 hover:bg-rose-500" 
-                            : "bg-emerald-600 hover:bg-emerald-500",
+                          duplicateAbast 
+                            ? "bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed opacity-60 shadow-none"
+                            : newAbastType === 'egreso' 
+                              ? "bg-rose-600 hover:bg-rose-500" 
+                              : "bg-emerald-600 hover:bg-emerald-500",
                           isEditingAbast ? "w-1/2" : "w-full"
                         )}
                       >
                         <Save size={18} />
-                        {isEditingAbast ? 'Actualizar' : newAbastType === 'egreso' ? 'Guardar Salida' : 'Guardar Ingreso'}
+                        {duplicateAbast 
+                          ? 'Remito Duplicado' 
+                          : isEditingAbast 
+                            ? 'Actualizar' 
+                            : newAbastType === 'egreso' 
+                              ? 'Guardar Salida' 
+                              : 'Guardar Ingreso'}
                       </button>
                     </div>
                   </form>
@@ -3228,8 +3354,21 @@ export default function App() {
                                 <td className="p-4 font-semibold text-slate-200">
                                   {record.client}
                                 </td>
-                                <td className="p-4 font-mono text-slate-400">
-                                  {record.remito}
+                                <td className="p-4 font-mono text-slate-300 text-xs">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className={duplicatedRemitosSet.has(record.remito?.trim().toLowerCase()) ? "text-amber-300 font-bold" : ""}>
+                                      {record.remito}
+                                    </span>
+                                    {duplicatedRemitosSet.has(record.remito?.trim().toLowerCase()) && (
+                                      <span 
+                                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40"
+                                        title="Atención: Este número de remito se encuentra repetido en el historial"
+                                      >
+                                        <AlertTriangle size={10} />
+                                        Duplicado
+                                      </span>
+                                    )}
+                                  </div>
                                 </td>
                                 <td className="p-4 text-xs font-mono">
                                   <div className="flex flex-wrap gap-1.5">
